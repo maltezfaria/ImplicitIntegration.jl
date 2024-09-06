@@ -1,10 +1,10 @@
 using Test
 using StaticArrays: SVector
 using ImplicitIntegration: HyperRectangle, ImplicitDomain, integrate
-using QuadGK
+using HCubature
 
 # Use quadgk as a 1D quadrature rule
-quad1d = (f, a, b) -> quadgk(f, a, b)[1]
+quad = (f, a, b) -> hcubature(f, a, b)[1]
 
 @testset "Segment integrals" begin
     ## ϕ = 1
@@ -13,13 +13,13 @@ quad1d = (f, a, b) -> quadgk(f, a, b)[1]
     U = HyperRectangle(SVector(0.0), SVector(2.0))
     s = 1
     Ω = ImplicitDomain(U, [ϕ], [s])
-    @test integrate(x -> 1.0, Ω, quad1d) ≈ 2.0
-    @test integrate(x -> x[1], Ω, quad1d) ≈ 2.0
+    @test integrate(x -> 1.0, Ω, quad) ≈ 2.0
+    @test integrate(x -> x[1], Ω, quad) ≈ 2.0
     # empty segment
     s = -1
     Ω = ImplicitDomain(U, [ϕ], [s])
-    @test integrate(x -> 1.0, Ω, quad1d) ≈ 0
-    @test integrate(x -> x[1], Ω, quad1d) ≈ 0
+    @test integrate(x -> 1.0, Ω, quad) ≈ 0
+    @test integrate(x -> x[1], Ω, quad) ≈ 0
 
     ## ϕ = x - 1
     ϕ = (x::SVector{1}) -> x[1] - 1
@@ -27,13 +27,13 @@ quad1d = (f, a, b) -> quadgk(f, a, b)[1]
     U = HyperRectangle(SVector(0.0), SVector(2.0))
     s = -1
     Ω = ImplicitDomain(U, [ϕ], [s])
-    @test integrate(x -> 1.0, Ω, quad1d) ≈ 1.0
-    @test integrate(x -> x[1], Ω, quad1d) ≈ 1 / 2
+    @test integrate(x -> 1.0, Ω, quad) ≈ 1.0
+    @test integrate(x -> x[1], Ω, quad) ≈ 1 / 2
     # intersection of [0,2] with {x : ϕ(x) > 0}
     s = 1
     Ω = ImplicitDomain(U, [ϕ], [s])
-    @test integrate(x -> 1.0, Ω, quad1d) ≈ 1.0
-    @test integrate(x -> x[1], Ω, quad1d) ≈ 2 - 1 / 2
+    @test integrate(x -> 1.0, Ω, quad) ≈ 1.0
+    @test integrate(x -> x[1], Ω, quad) ≈ 2 - 1 / 2
 
     ## ϕ = cos(x)
     ϕ = (x::SVector{1}) -> cos(x[1])
@@ -41,11 +41,11 @@ quad1d = (f, a, b) -> quadgk(f, a, b)[1]
     U = HyperRectangle(SVector(-float(π)), SVector(float(π)))
     s = 1
     Ω = ImplicitDomain(U, [ϕ], [s])
-    @test integrate(x -> 1.0, Ω, quad1d) ≈ π
+    @test integrate(x -> 1.0, Ω, quad) ≈ π
     # intersection of [-π,π] with {x : ϕ(x) < 0}
     s = -1
     Ω = ImplicitDomain(U, [ϕ], [s])
-    @test integrate(x -> 1.0, Ω, quad1d) ≈ π
+    @test integrate(x -> 1.0, Ω, quad) ≈ π
 
     ## ϕ = sin(x)
     ϕ = (x::SVector{1}) -> sin(x[1])
@@ -53,11 +53,11 @@ quad1d = (f, a, b) -> quadgk(f, a, b)[1]
     U = HyperRectangle(SVector(-2 * π), SVector(2 * π))
     s = 1
     Ω = ImplicitDomain(U, [ϕ], [s])
-    @test integrate(x -> 1.0, Ω, quad1d) ≈ 2π
+    @test integrate(x -> 1.0, Ω, quad) ≈ 2π
     # intersection of [-2π,2π] with {x : ϕ(x) < 0}
     s = -1
     Ω = ImplicitDomain(U, [ϕ], [s])
-    @test integrate(x -> 1.0, Ω, quad1d) ≈ 2π
+    @test integrate(x -> 1.0, Ω, quad) ≈ 2π
 end
 
 @testset "Area integrals" begin
@@ -67,16 +67,16 @@ end
     U = HyperRectangle(SVector(0.0, 0.0), SVector(2.0, 2.0))
     s = 1
     Ω = ImplicitDomain(U, [ϕ], [s])
-    integrate(x -> 1.0, Ω, quad1d)
-    @test integrate(x -> 1.0, Ω, quad1d) ≈ 4.0
-    @test integrate(x -> x[1], Ω, quad1d) ≈ 4.0
-    @test integrate(x -> x[2], Ω, quad1d) ≈ 4.0
+    integrate(x -> 1.0, Ω, quad)
+    @test integrate(x -> 1.0, Ω, quad) ≈ 4.0
+    @test integrate(x -> x[1], Ω, quad) ≈ 4.0
+    @test integrate(x -> x[2], Ω, quad) ≈ 4.0
     # empty square
     s = -1
     Ω = ImplicitDomain(U, [ϕ], [s])
-    @test integrate(x -> 1.0, Ω, quad1d) ≈ 0
-    @test integrate(x -> x[1], Ω, quad1d) ≈ 0
-    @test integrate(x -> x[2], Ω, quad1d) ≈ 0
+    @test integrate(x -> 1.0, Ω, quad) ≈ 0
+    @test integrate(x -> x[1], Ω, quad) ≈ 0
+    @test integrate(x -> x[2], Ω, quad) ≈ 0
 
     ## ϕ = y - x
     ϕ = (x::SVector{2}) -> x[2] - x[1]
@@ -84,9 +84,9 @@ end
     U = HyperRectangle(SVector(0.0, 0.0), SVector(2.0, 2.0))
     s = -1
     Ω = ImplicitDomain(U, [ϕ], [s])
-    @test integrate(x -> 1.0, Ω, quad1d) ≈ 2.0
-    @test integrate(x -> x[1], Ω, quad1d) ≈ 2^3 / 3
-    @test integrate(x -> x[2], Ω, quad1d) ≈ 2^3 / 6
+    @test integrate(x -> 1.0, Ω, quad) ≈ 2.0
+    @test integrate(x -> x[1], Ω, quad) ≈ 2^3 / 3
+    @test integrate(x -> x[2], Ω, quad) ≈ 2^3 / 6
 
     ## ϕ = x^2 + y^2 - 1
     ϕ = (x::SVector{2}) -> x[1]^2 + x[2]^2 - 1
@@ -95,5 +95,6 @@ end
     U = HyperRectangle(SVector(0.0, 0.0), SVector(1.0, 1.0))
     s = -1
     Ω = ImplicitDomain(U, [ϕ], [s])
-    @test integrate(x -> 1.0, Ω, quad1d) ≈ π / 4
+    integrate(x -> 1.0, Ω, quad)
+    @test integrate(x -> 1.0, Ω, quad) ≈ π / 4
 end

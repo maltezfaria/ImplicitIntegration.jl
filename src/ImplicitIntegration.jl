@@ -3,9 +3,8 @@ module ImplicitIntegration
 import IntervalArithmetic
 import ForwardDiff
 import Roots
-import QuadGK
 
-import StaticArrays: SVector, insert, deleteat
+import StaticArrays: SVector, insert, deleteat, setindex
 
 struct HyperRectangle{N,T<:AbstractFloat}
     lc::SVector{N,T}
@@ -77,7 +76,7 @@ integral over `I(x̃) ⊂ ℝ` of the function `t -> f(insert(x̃, k, t))`, wher
 integration domain `I` is defined as `I(x̃) = {t ∈ [a,b] :
 sᵢ*ϕᵢ(insert(̃x,k,t) ≥ 0 ∀ (ϕᵢ,sᵢ) ∈ V)}`.
 """
-function integrand_eval(f, V::ImplicitDomain{N}, dir::Int, quad1d = QuadGK.quadgk) where {N}
+function integrand_eval(f, V::ImplicitDomain{N}, dir::Int, quad) where {N}
     xl, xu = bounds(V.box)
     a, b = xl[dir], xu[dir]
     f̃ = (x̃) -> begin
@@ -106,8 +105,8 @@ function integrand_eval(f, V::ImplicitDomain{N}, dir::Int, quad1d = QuadGK.quadg
                 end
             end
             skip && continue
-            # add the contribution of the segment by performing a 1D quadrature
-            I += quad1d(rᵢ, rᵢ₊₁) do t
+            # add the contribution of the segment by performing a 1D quadrature.
+            I += quad(SVector(rᵢ), SVector(rᵢ₊₁)) do (t,)
                 x = insert(x̃, dir, t)
                 return f(x)
             end
@@ -117,19 +116,37 @@ function integrand_eval(f, V::ImplicitDomain{N}, dir::Int, quad1d = QuadGK.quadg
     return f̃
 end
 
-function integrate(f, Ω::ImplicitDomain{DIM,T}, quad1d) where {DIM,T}
-    U = Ω.box
-    xl, xu = bounds(U)
-    xc = (xl + xu) / 2
-    ϕ, s = Ω.functions, Ω.flags
-    n = length(ϕ)
+function integrate(f, Ω::ImplicitDomain{DIM,T}, quad) where {DIM,T}
     if DIM == 1
-        f̃ = integrand_eval(f, Ω, 1, quad1d)
+        # Base case of the dimensional recursion
+        f̃ = integrand_eval(f, Ω, 1, quad)
         x̃ = SVector{0,T}() # TODO: this is a hack to make `integrand_eval` work for N=1
         return f̃(x̃)
     else
-        # TODO: add prunning stage to remove trivial ϕᵢ (whole box or empty box)
-        # TODO: tensor product quadrature when prunning removes all ϕᵢ
+        # First we prune the domain by removing functions that are not relevant
+        U = Ω.box
+        xl, xu = bounds(U)
+        xc = (xl + xu) / 2
+        ϕ, s = Ω.functions, Ω.flags # before prunning
+        n = length(ϕ)
+        idxs_keep = Int[]
+        for i in 1:n
+            lb, ub = bound(ϕ[i], U)
+            lb > 0 && s[i] < 0 && (return 0.0) # {x ∈ U : ϕᵢ < 0} is empty since ϕᵢ > 0
+            ub < 0 && s[i] > 0 && (return 0.0) # {x ∈ U : ϕᵢ > 0} is empty since ϕᵢ < 0
+            lb * ub ≤ 0 && push!(idxs_keep, i) # sign change in U, so keep ϕᵢ
+            # NOTE: things like lb > 0 and s[i] > 0 can be pruned since U ∩ {x :
+            # ϕᵢ > 0} = U
+        end
+        # Pruned version
+        ϕ, s = ϕ[idxs_keep], s[idxs_keep]
+        n    = length(idxs_keep)
+        # tensor product quadrature when prunning removes all ϕᵢ
+        if n == 0
+            return quad(f, xl, xu)
+        end
+        # Domain is neither empty nor full, so we need to either split it or
+        # find a height direction...
         ∇ϕ₁ = (x) -> ForwardDiff.gradient(ϕ[1], x)
         k = argmax(∇ϕ₁(xc))
         ϕ̃, s̃ = Function[], empty(s)
@@ -152,15 +169,15 @@ function integrate(f, Ω::ImplicitDomain{DIM,T}, quad1d) where {DIM,T}
                 # TODO: stop subdivision if U is too small and return midpoint
                 Uₗ, Uᵣ = split(U, argmax(xu - xl))
                 Ωₗ, Ωᵣ = ImplicitDomain(Uₗ, ϕ, s), ImplicitDomain(Uᵣ, ϕ, s)
-                return integrate(f, Ωₗ, quad1d) + integrate(f, Ωᵣ, quad1d)
+                return integrate(f, Ωₗ, quad) + integrate(f, Ωᵣ, quad)
             end
         end
         # If we got here then we have a good direction k do recurse down on the
         # dimension
         Ũ = remove_dimension(U, k)
-        f̃ = integrand_eval(f, Ω, k, quad1d)
+        f̃ = integrand_eval(f, Ω, k, quad)
         Ω̃ = ImplicitDomain(Ũ, ϕ̃, s̃)
-        return integrate(f̃, Ω̃, quad1d)
+        return integrate(f̃, Ω̃, quad)
     end
 end
 
