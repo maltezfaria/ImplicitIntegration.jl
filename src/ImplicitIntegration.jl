@@ -3,30 +3,13 @@ module ImplicitIntegration
 import IntervalArithmetic
 import ForwardDiff
 import Roots
-
+import HCubature
 import StaticArrays: SVector, insert, deleteat, setindex
 
-struct HyperRectangle{N,T<:AbstractFloat}
-    lc::SVector{N,T}
-    hc::SVector{N,T}
-end
+# FIXME: understand the patch below and move it upstream if necessary
+IntervalArithmetic.Interval{T}(x::T) where {T} = IntervalArithmetic.interval(x)
 
-const Segment{T} = HyperRectangle{1,T}
-
-bounds(rect::HyperRectangle) = (rect.lc, rect.hc)
-
-function remove_dimension(rect::HyperRectangle, k)
-    lc, hc = bounds(rect)
-    return HyperRectangle(deleteat(lc, k), deleteat(hc, k))
-end
-
-function split(U::HyperRectangle, dir)
-    lc, hc = bounds(U)
-    mid = (lc[dir] + hc[dir]) / 2
-    Uₗ = HyperRectangle(lc, setindex(hc, mid, dir))
-    Uᵣ = HyperRectangle(setindex(lc, mid, dir), hc)
-    return Uₗ, Uᵣ
-end
+include("hyperrectangle.jl")
 
 """
     bound(f, rec::HyperRectangle)
@@ -69,7 +52,7 @@ end
 
 ## Algorithm 1 of Saye 2015
 """
-    integrand_eval(f, V::ImplicitDomain{N}, a, b, quad1d)
+    integrand_eval(f, V::ImplicitDomain{N}, dir, quad1d)
 
 Return a function `f̃ : ℝᴺ⁻¹ -> ℝ` that approximates the one-dimensional
 integral over `I(x̃) ⊂ ℝ` of the function `t -> f(insert(x̃, k, t))`, where the
@@ -85,8 +68,16 @@ function integrand_eval(f, V::ImplicitDomain{N}, dir::Int, quad) where {N}
         bnds = [a, b]
         for ϕᵢ in V.functions
             g = (t) -> ϕᵢ(insert(x̃, dir, t))
-            # FIXME: use `IntervalRootFinding` for robustness
-            append!(bnds, Roots.find_zeros(g, a, b))
+            if N == 1
+                # we need to find all roots of g in [a,b]
+                append!(bnds, Roots.find_zeros(g, a, b))
+            else
+                # we know that g is monotonic since it corresponds to a
+                # height-direction, so at most a single root exists.
+                # TODO: look up and test Brent's method for this case
+                g(a) * g(b) > 0 && continue
+                push!(bnds, Roots.find_zero(g, (a, b)))
+            end
         end
         sort!(bnds)
         I = 0.0 # FIXME: infer the appropriate type for this accumulator
@@ -166,14 +157,22 @@ function integrate(f, Ω::ImplicitDomain{DIM,T}, quad) where {DIM,T}
                 push!(s̃, sᵢᴸ, sᵢᵁ)
             else
                 # split along largest direction
-                # TODO: stop subdivision if U is too small and return midpoint
-                Uₗ, Uᵣ = split(U, argmax(xu - xl))
-                Ωₗ, Ωᵣ = ImplicitDomain(Uₗ, ϕ, s), ImplicitDomain(Uᵣ, ϕ, s)
+                @debug "Splitting $U along $k"
+                h, k = findmax(xu - xl)
+                hmin = 1e-4 # FIXME: make a parameter?
+                if h < hmin # stop splitting if the box is too small
+                    @warn "Terminal case of recursion reached on $U, resorting to low-order method"
+                    return f(xc) * prod(xu - xl)
+                else
+                    Uₗ, Uᵣ = split(U, k)
+                    Ωₗ, Ωᵣ = ImplicitDomain(Uₗ, ϕ, s), ImplicitDomain(Uᵣ, ϕ, s)
+                end
                 return integrate(f, Ωₗ, quad) + integrate(f, Ωᵣ, quad)
             end
         end
         # If we got here then we have a good direction k do recurse down on the
         # dimension
+        @debug "Recursing down on $k for $U"
         Ũ = remove_dimension(U, k)
         f̃ = integrand_eval(f, Ω, k, quad)
         Ω̃ = ImplicitDomain(Ũ, ϕ̃, s̃)
