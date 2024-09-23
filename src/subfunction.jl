@@ -11,7 +11,6 @@ another function `f : ℝᴹ⁺ᴺ → ℝ` to fixed values.
 
 The type parameter `M` has to be explicitly provided (e.g. `SubFunction{M}(f,
 dims, vals)`) since it cannot be inferred from the fields.
-
 """
 struct SubFunction{M,N,T,F}
     f::F # underlying function

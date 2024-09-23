@@ -27,11 +27,19 @@ The `Config` struct has the following fields:
     min_size::Float64 = 1e-4
 end
 
-function integrate(f, ϕ, lc::SVector{N,T}, hc::SVector{N,T}; config = Config()) where {N,T}
+function integrate(
+    f,
+    ϕ,
+    lc::SVector{N,T},
+    hc::SVector{N,T};
+    surface = false,
+    config = Config(),
+) where {N,T}
     U = HyperRectangle(lc, hc)
     RET_TYPE = typeof(f(lc)) # a guess for the return type...
     ϕ_ = SubFunction{N}(ϕ, SVector{0,Int}(), SVector{0,T}())
-    return _integrate(f, [ϕ_], [-1], U, config, RET_TYPE)
+    s = surface ? 0 : -1
+    return _integrate(f, [ϕ_], [s], U, config, RET_TYPE, surface)
 end
 
 function _integrate(
@@ -41,12 +49,13 @@ function _integrate(
     U::HyperRectangle{DIM,T},
     config,
     ::Type{RET_TYPE},
+    surface::Bool,
 ) where {DIM,T,RET_TYPE}
     xl, xu = bounds(U)
     # Start by prunning phi_vec...
     partial_cell_idxs = Int[]
     for i in eachindex(phi_vec, s_vec)
-        c = cell_type(phi_vec[i], s_vec[i], U)
+        c = cell_type(phi_vec[i], s_vec[i], U, surface)
         c == empty_cell && return zero(RET_TYPE)
         c == partial_cell && push!(partial_cell_idxs, i)
     end
@@ -97,16 +106,21 @@ function _integrate(
             else
                 Uₗ, Uᵣ = split(U, dir)
             end
-            return _integrate(f, phi_vec, s_vec, Uₗ, config, RET_TYPE) +
-                   _integrate(f, phi_vec, s_vec, Uᵣ, config, RET_TYPE)
+            return _integrate(f, phi_vec, s_vec, Uₗ, config, RET_TYPE, surface) +
+                   _integrate(f, phi_vec, s_vec, Uᵣ, config, RET_TYPE, surface)
         end
     end
     # k is a good height direction for all the level-set functions, so recurse
     # on dimension until 1D integrals are reached
     @debug "Recursing down on $k for $U"
-    f̃ = _integrand_eval(f, phi_vec, s_vec, U, k, config, RET_TYPE)
+    if surface
+        @assert length(phi_vec) == 1
+        f̃ = _surface_integrand_eval(f, phi_vec[1], U, k, config, RET_TYPE)
+    else
+        f̃ = _integrand_eval(f, phi_vec, s_vec, U, k, config, RET_TYPE)
+    end
     Ũ = remove_dimension(U, k)
-    return _integrate(f̃, phi_vec_new, s_vec_new, Ũ, config, RET_TYPE)
+    return _integrate(f̃, phi_vec_new, s_vec_new, Ũ, config, RET_TYPE, false)
 end
 
 ## Algorithm 1 of Saye 2015
@@ -173,6 +187,30 @@ function _integrand_eval(
     return f̃
 end
 
+function _surface_integrand_eval(
+    f,
+    phi,
+    U::HyperRectangle{N},
+    k::Int,
+    config,
+    ::Type{RET_TYPE},
+) where {N,RET_TYPE}
+    xl, xu = bounds(U)
+    a, b = xl[k], xu[k]
+    f̃ = (x̃) -> begin
+        g = (t) -> phi(insert(x̃, k, t))
+        if g(a) * g(b) > 0
+            return zero(RET_TYPE)
+        else
+            root = config.find_zero(g, (a, b))
+            x = insert(x̃, k, root)
+            ∇ϕ = gradient(phi, x)
+            return f(x) * norm(∇ϕ) / abs(∇ϕ[k])
+        end
+    end
+    return f̃
+end
+
 """
     sgn(m, s, S::Bool, σ)
 
@@ -200,18 +238,23 @@ and `partial_cell`.
 @enum CellType full_cell empty_cell partial_cell
 
 """
-    cell_type(ϕ, s, U)
+    cell_type(ϕ, s, U, surface)
 
 Compute the [`CellType`](@ref) of a cell defined by the level-set function `ϕ`,
-a sign `s`, and the box `U`.
+a sign `s`, and the box `U`. If `surface` is `true`, then the cell is classified
+as per a surface integral.
 """
-function cell_type(ϕ, s, U)
+function cell_type(ϕ, s, U, surface)
     lb, ub = bound(ϕ, U)
-    if (lb > 0 && s < 0) || (ub < 0 && s > 0)
-        return empty_cell
-    elseif lb * ub ≤ 0
+    if lb * ub ≤ 0 # sign change
         return partial_cell
-    else
-        return full_cell
+    elseif surface # no sign change, so no zero for surface integral
+        return empty_cell
+    else # no sign change, but since this is a volume integral cell can be full or empty
+        if (lb > 0 && s < 0) || (ub < 0 && s > 0)
+            return empty_cell
+        else
+            return full_cell
+        end
     end
 end

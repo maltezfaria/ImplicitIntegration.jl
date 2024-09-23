@@ -2,7 +2,7 @@ using StaticArrays
 using Test
 using ImplicitIntegration
 
-@testset "Segment integrals" begin
+@testset "1D integrals" begin
     # integrate various functions on [0,2] segment
     a, b = SVector(0.0), SVector(2.0)
 
@@ -40,7 +40,7 @@ using ImplicitIntegration
     @inferred integrate(x -> 1.0, ϕ, a, b)
 end
 
-@testset "Area integrals" begin
+@testset "2D integrals" begin
     # integrate various functions on [0,2]×[0,2] square
     a, b = SVector(0.0, 0.0), SVector(2.0, 2.0)
 
@@ -48,6 +48,7 @@ end
     @test integrate(x -> 1.0, ϕ, a, b) ≈ 4.0
     @test integrate(x -> x[1], ϕ, a, b) ≈ 4.0
     @test integrate(x -> x[2], ϕ, a, b) ≈ 4.0
+    @test integrate(x -> 1.0, ϕ, a, b; surface = true) ≈ 0
 
     ϕ = (x::SVector{2}) -> 1.0
     @test integrate(x -> 1.0, ϕ, a, b) ≈ 0
