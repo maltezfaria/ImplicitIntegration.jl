@@ -1,7 +1,9 @@
 module ImplicitIntegration
 
-import IntervalArithmetic
+using LinearAlgebra
+
 import ForwardDiff
+import IntervalArithmetic
 import Roots
 import HCubature
 import StaticArrays: SVector, MVector, insert, deleteat, setindex, popfirst

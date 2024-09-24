@@ -39,7 +39,7 @@ function integrate(
     RET_TYPE = typeof(f(lc)) # a guess for the return type...
     ϕ_ = SubFunction{N}(ϕ, SVector{0,Int}(), SVector{0,T}())
     s = surface ? 0 : -1
-    return _integrate(f, [ϕ_], [s], U, config, RET_TYPE, surface)
+    return _integrate(f, [ϕ_], [s], U, config, RET_TYPE, Val(surface))
 end
 
 function _integrate(
@@ -49,13 +49,13 @@ function _integrate(
     U::HyperRectangle{DIM,T},
     config,
     ::Type{RET_TYPE},
-    surface::Bool,
-) where {DIM,T,RET_TYPE}
+    ::Val{S},
+) where {DIM,T,RET_TYPE,S}
     xl, xu = bounds(U)
     # Start by prunning phi_vec...
     partial_cell_idxs = Int[]
     for i in eachindex(phi_vec, s_vec)
-        c = cell_type(phi_vec[i], s_vec[i], U, surface)
+        c = cell_type(phi_vec[i], s_vec[i], U, S)
         c == empty_cell && return zero(RET_TYPE)
         c == partial_cell && push!(partial_cell_idxs, i)
     end
@@ -106,21 +106,21 @@ function _integrate(
             else
                 Uₗ, Uᵣ = split(U, dir)
             end
-            return _integrate(f, phi_vec, s_vec, Uₗ, config, RET_TYPE, surface) +
-                   _integrate(f, phi_vec, s_vec, Uᵣ, config, RET_TYPE, surface)
+            return _integrate(f, phi_vec, s_vec, Uₗ, config, RET_TYPE, Val(S)) +
+                   _integrate(f, phi_vec, s_vec, Uᵣ, config, RET_TYPE, Val(S))
         end
     end
     # k is a good height direction for all the level-set functions, so recurse
     # on dimension until 1D integrals are reached
     @debug "Recursing down on $k for $U"
-    if surface
+    if S
         @assert length(phi_vec) == 1
         f̃ = _surface_integrand_eval(f, phi_vec[1], U, k, config, RET_TYPE)
     else
         f̃ = _integrand_eval(f, phi_vec, s_vec, U, k, config, RET_TYPE)
     end
     Ũ = remove_dimension(U, k)
-    return _integrate(f̃, phi_vec_new, s_vec_new, Ũ, config, RET_TYPE, false)
+    return _integrate(f̃, phi_vec_new, s_vec_new, Ũ, config, RET_TYPE, Val(false))
 end
 
 ## Algorithm 1 of Saye 2015

@@ -53,18 +53,22 @@ end
     ϕ = (x::SVector{2}) -> 1.0
     @test integrate(x -> 1.0, ϕ, a, b) ≈ 0
     @test integrate(x -> cos(x[1]), ϕ, a, b) ≈ 0
+    @test integrate(x -> 1.0, ϕ, a, b; surface = true) ≈ 0
 
     ϕ = (x::SVector{2}) -> x[2] - x[1]
     @test integrate(x -> 1.0, ϕ, a, b) ≈ 2.0
     @test integrate(x -> 1.0, ϕ, a, b) ≈ 2.0
     @test integrate(x -> x[1], ϕ, a, b) ≈ 2^3 / 3
     @test integrate(x -> x[2], ϕ, a, b) ≈ 2^3 / 6
+    @test integrate(x -> 1.0, ϕ, a, b; surface = true) ≈ sqrt(8)
 
     ϕ = (x::SVector{2}) -> x[1]^2 + x[2]^2 - 1
     @test integrate(x -> 1.0, ϕ, a, b) ≈ π / 4
+    @test integrate(x -> 1.0, ϕ, a, b; surface = true) ≈ 2 * π / 4
 
     ϕ = (x::SVector{2}) -> -(x[1]^2 + x[2]^2 - 1)
     @test integrate(x -> 1.0, ϕ, a, b) ≈ 4 - π / 4
+    @test integrate(x -> 1.0, ϕ, a, b; surface = true) ≈ 2 * π / 4
 
     # FIXME: type-inference fails on 1.10, but passes o 1.12. Maybe related to recursive calls in `integrate`?
     @test_broken @inferred integrate(x -> 1.0, ϕ, a, b)
@@ -76,18 +80,23 @@ end
 
     ϕ = (x::SVector{3}) -> -1.0
     @test integrate(x -> 1.0, ϕ, a, b) ≈ 2^3
+    @test integrate(x -> 1.0, ϕ, a, b; surface = true) ≈ 0
 
     ϕ = (x::SVector{3}) -> 1.0
     @test integrate(x -> 1.0, ϕ, a, b) ≈ 0
+    @test integrate(x -> 1.0, ϕ, a, b; surface = true) ≈ 0
 
     ϕ = (x::SVector{3}) -> 1 - x[3]
     @test integrate(x -> 1.0, ϕ, a, b) ≈ 2^3 / 2
+    @test integrate(x -> 1.0, ϕ, a, b; surface = true) ≈ 2^2
 
     ϕ = (x::SVector{3}) -> x[3] - 1
     @test integrate(x -> 1.0, ϕ, a, b) ≈ 2^3 / 2
+    @test integrate(x -> 1.0, ϕ, a, b; surface = true) ≈ 2^2
 
     ϕ = (x::SVector{3}) -> x[1]^2 + x[2]^2 + x[3]^2 - 1
     @test integrate(x -> 1.0, ϕ, a, b .+ 0.1) ≈ (4 / 3) * π / 8
+    @test integrate(x -> 1.0, ϕ, a, b .+ 0.1; surface = true) ≈ 4 * π / 8
 
     # FIXME: type-inference fails. Maybe related to recursive calls in `integrate`?
     @test_broken @inferred integrate(x -> 1.0, ϕ, a, b .+ 0.1)
