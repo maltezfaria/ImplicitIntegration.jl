@@ -178,14 +178,15 @@ function _integrate(
     # k is a good height direction for all the level-set functions, so recurse
     # on dimension until 1D integrals are reached
     @debug "Recursing down on $k for $U"
+    Ũ = remove_dimension(U, k)
     if S
         @assert length(phi_vec) == 1
         f̃ = _surface_integrand_eval(f, phi_vec[1], U, k, config, RET_TYPE)
+        return _integrate(f̃, phi_vec_new, s_vec_new, Ũ, config, RET_TYPE, Val(false), tol)
     else
         f̃ = _integrand_eval(f, phi_vec, s_vec, U, k, config, RET_TYPE, tol)
+        return _integrate(f̃, phi_vec_new, s_vec_new, Ũ, config, RET_TYPE, Val(false), tol)
     end
-    Ũ = remove_dimension(U, k)
-    return _integrate(f̃, phi_vec_new, s_vec_new, Ũ, config, RET_TYPE, Val(false), tol)
 end
 
 ## Algorithm 1 of Saye 2015
