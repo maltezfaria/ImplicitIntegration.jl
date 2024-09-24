@@ -94,7 +94,10 @@ function integrate(
     return _integrate(f, [ϕ_], [s], U, config, RET_TYPE, Val(surface), tol)
 end
 
-function integrate(f, ϕ, lc::NTuple{N,T1}, hc::NTuple{N,T2}; kwargs...) where {N,T1,T2}
+function integrate(f, ϕ, lc, hc; kwargs...)
+    @assert length(lc) == length(hc) "Lower and upper corners must have the same length."
+    N = length(lc)
+    T1, T2 = eltype(lc), eltype(hc)
     T = promote_type(float(T1), float(T2))
     return integrate(f, ϕ, SVector{N,T}(lc), SVector{N,T}(hc); kwargs...)
 end
