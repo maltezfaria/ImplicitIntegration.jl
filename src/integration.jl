@@ -7,12 +7,12 @@ algorithm.
 
 The `Config` struct has the following fields:
 
-- `quad`: called as `quad(f, a::SVector, b::SVector)`, returns an approximation
-  to the integral of `f` over [`HyperRectangle(a,b)`(@ref)].
 - `find_zero`: called as `find_zero(f, a, b)`, returns a zero of `f` in the
   interval `[a,b]` (if it exists).
 - `find_zeros`: called as `find_zeros(f, a, b)`, returns all zeros of `f` in the
   interval `[a,b]` (if they exist).
+- `quad`: called as `quad(f, a::SVector, b::SVector)`, returns an approximation
+  to the integral of `f` over [`HyperRectangle(a,b)`(@ref)].
 - `min_qual`: a number between `0` and `1` used to specify the minimum quality
   factor for a height direction to be considered good for recursion. The quality
   factor for a direction `k` is given by `|∂ₖϕ| / |∇ϕ|`.
@@ -20,26 +20,83 @@ The `Config` struct has the following fields:
   during the recursion. Recursion stops when the box is smaller than this size.
 """
 @kwdef struct Config{T1,T2,T3}
-    quad::T1          = (f, a, b) -> HCubature.hcubature(f, a, b)[1]
-    find_zero::T2     = Roots.find_zero
-    find_zeros::T3    = Roots.find_zeros
+    find_zero::T1     = Roots.find_zero
+    find_zeros::T2    = Roots.find_zeros
+    quad::T3          = nothing
     min_qual::Float64 = 0.0
     min_size::Float64 = 1e-4
 end
 
+"""
+    integrate(f, ϕ, lc, hc; tol=1e-8, surface=false, config = Config())
+
+Integrate the function `f` over an implict domain defined by:
+
+- `Ω = {lc ≤ 𝐱 ≤ hc: ϕ(𝐱) < 0}` if `surface = false`
+- `Γ = {lc ≤ 𝐱 ≤ hc: ϕ(𝐱) = 0}` if `surface = true`
+
+where `lc::NTuple` and `hc::NTuple` denote the lower and upper corners of the bounding box.
+
+`tol` specifies the desired (absolute) tolerance for the approximation.
+
+For a finer control of the integration process, the user can pass a `config`
+object to customize the behavior of various aspects of the algorithm (see
+[`Config`](@ref) for more details).
+
+Note that both `f` and `ϕ` must be callable with a single argument `𝐱` of type
+`SVector`. Furthemore, `ϕ` is expected to return a real value.
+
+# Examples
+
+To compute the area of a quarter of a disk of radius 1.0:
+
+```jldoctest; output = false
+a, b = (0.0, 0.0), (1.5, 1.5)
+ϕ = (x) -> x[1]^2 + x[2]^2 - 1
+f = (x) -> 1.0
+integrate(f, ϕ, a, b) ≈ π / 4 # area of quarter of a disk
+
+# output
+
+true
+
+```
+
+To compute the perimeter of a quarter of a circle of radius 1.0:
+
+```jldoctest; output = false
+a, b = (0.0, 0.0), (1.5, 1.5)
+ϕ = (x) -> x[1]^2 + x[2]^2 - 1
+f = (x) -> 1.0
+integrate(x -> 1.0, ϕ, a, b; surface = true) ≈ 2π / 4 # perimeter of quarter of a circle
+
+# output
+
+true
+
+```
+
+
+"""
 function integrate(
     f,
     ϕ,
     lc::SVector{N,T},
     hc::SVector{N,T};
     surface = false,
+    tol = 1e-8,
     config = Config(),
 ) where {N,T}
     U = HyperRectangle(lc, hc)
     RET_TYPE = typeof(f(lc)) # a guess for the return type...
     ϕ_ = SubFunction{N}(ϕ, SVector{0,Int}(), SVector{0,T}())
     s = surface ? 0 : -1
-    return _integrate(f, [ϕ_], [s], U, config, RET_TYPE, Val(surface))
+    return _integrate(f, [ϕ_], [s], U, config, RET_TYPE, Val(surface), tol)
+end
+
+function integrate(f, ϕ, lc::NTuple{N,T1}, hc::NTuple{N,T2}; kwargs...) where {N,T1,T2}
+    T = promote_type(float(T1), float(T2))
+    return integrate(f, ϕ, SVector{N,T}(lc), SVector{N,T}(hc); kwargs...)
 end
 
 function _integrate(
@@ -50,6 +107,7 @@ function _integrate(
     config,
     ::Type{RET_TYPE},
     ::Val{S},
+    tol,
 ) where {DIM,T,RET_TYPE,S}
     xl, xu = bounds(U)
     # Start by prunning phi_vec...
@@ -59,8 +117,12 @@ function _integrate(
         c == empty_cell && return zero(RET_TYPE)
         c == partial_cell && push!(partial_cell_idxs, i)
     end
-    if length(partial_cell_idxs) == 0
-        return config.quad(f, xl, xu) # full cell
+    if length(partial_cell_idxs) == 0 # full cell
+        if isnothing(config.quad)
+            return HCubature.hcubature(f, xl, xu; atol = tol)[1]
+        else
+            return config.quad(f, xl, xu) # full cell
+        end # full cell
     end
     phi_vec = phi_vec[partial_cell_idxs]
     s_vec   = s_vec[partial_cell_idxs]
@@ -68,7 +130,7 @@ function _integrate(
     # is neither empty nor full. Next try to find a good direction to recurse
     # on. We will choose the direction with the largest gradient.
     if DIM == 1 # base case
-        f̃ = _integrand_eval(f, phi_vec, s_vec, U, 1, config, RET_TYPE)
+        f̃ = _integrand_eval(f, phi_vec, s_vec, U, 1, config, RET_TYPE, tol)
         x̃ = SVector{0,T}() # zero-argument vector to evaluate `f̃` (a const.)
         return f̃(x̃)
     end
@@ -106,8 +168,8 @@ function _integrate(
             else
                 Uₗ, Uᵣ = split(U, dir)
             end
-            return _integrate(f, phi_vec, s_vec, Uₗ, config, RET_TYPE, Val(S)) +
-                   _integrate(f, phi_vec, s_vec, Uᵣ, config, RET_TYPE, Val(S))
+            return _integrate(f, phi_vec, s_vec, Uₗ, config, RET_TYPE, Val(S), tol / 2) +
+                   _integrate(f, phi_vec, s_vec, Uᵣ, config, RET_TYPE, Val(S), tol / 2)
         end
     end
     # k is a good height direction for all the level-set functions, so recurse
@@ -117,10 +179,10 @@ function _integrate(
         @assert length(phi_vec) == 1
         f̃ = _surface_integrand_eval(f, phi_vec[1], U, k, config, RET_TYPE)
     else
-        f̃ = _integrand_eval(f, phi_vec, s_vec, U, k, config, RET_TYPE)
+        f̃ = _integrand_eval(f, phi_vec, s_vec, U, k, config, RET_TYPE, tol)
     end
     Ũ = remove_dimension(U, k)
-    return _integrate(f̃, phi_vec_new, s_vec_new, Ũ, config, RET_TYPE, Val(false))
+    return _integrate(f̃, phi_vec_new, s_vec_new, Ũ, config, RET_TYPE, Val(false), tol)
 end
 
 ## Algorithm 1 of Saye 2015
@@ -140,9 +202,15 @@ function _integrand_eval(
     k::Int,
     config,
     ::Type{RET_TYPE},
+    tol,
 ) where {N,RET_TYPE}
     xl, xu = bounds(U)
     a, b = xl[k], xu[k]
+    quad = if isnothing(config.quad)
+        (f, a, b) -> HCubature.hcubature(f, a, b; atol = tol)[1]
+    else
+        config.quad
+    end
     f̃ = (x̃) -> begin
         # compute the connected components
         bnds = [a, b]
@@ -177,7 +245,7 @@ function _integrand_eval(
             end
             skip && continue
             # add the contribution of the segment by performing a 1D quadrature.
-            acc += config.quad(SVector(rᵢ), SVector(rᵢ₊₁)) do (t,)
+            acc += quad(SVector(rᵢ), SVector(rᵢ₊₁)) do (t,)
                 x = insert(x̃, k, t)
                 return f(x)
             end

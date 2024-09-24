@@ -17,8 +17,6 @@ function bound(f, rec::HyperRectangle{N}) where {N}
     return IntervalArithmetic.bounds.(f(I))
 end
 
-function _check_bound_method(f) end
-
 """
     gradient(f, x)
 
