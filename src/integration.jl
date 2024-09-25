@@ -88,7 +88,7 @@ function integrate(
     config = Config(),
 ) where {N,T}
     U = HyperRectangle(lc, hc)
-    RET_TYPE = typeof(f(lc)) # a guess for the return type...
+    RET_TYPE = typeof(f(lc) * one(T) + f(hc) * one(T)) # a guess for the return type...
     ϕ_ = SubFunction{N}(ϕ, SVector{0,Int}(), SVector{0,T}())
     s = surface ? 0 : -1
     return _integrate(f, [ϕ_], [s], U, config, RET_TYPE, Val(surface), tol)
@@ -124,8 +124,8 @@ function _integrate(
         if isnothing(config.quad)
             return HCubature.hcubature(f, xl, xu; atol = tol)[1]
         else
-            return config.quad(f, xl, xu) # full cell
-        end # full cell
+            return config.quad(f, xl, xu)
+        end
     end
     phi_vec = phi_vec[partial_cell_idxs]
     s_vec   = s_vec[partial_cell_idxs]
@@ -171,8 +171,9 @@ function _integrate(
             else
                 Uₗ, Uᵣ = split(U, dir)
             end
-            return _integrate(f, phi_vec, s_vec, Uₗ, config, RET_TYPE, Val(S), tol / 2) +
-                   _integrate(f, phi_vec, s_vec, Uᵣ, config, RET_TYPE, Val(S), tol / 2)
+            tol′ = isnothing(tol) ? nothing : tol / 2
+            return _integrate(f, phi_vec, s_vec, Uₗ, config, RET_TYPE, Val(S), tol′) +
+                   _integrate(f, phi_vec, s_vec, Uᵣ, config, RET_TYPE, Val(S), tol′)
         end
     end
     # k is a good height direction for all the level-set functions, so recurse
@@ -277,7 +278,7 @@ function _surface_integrand_eval(
             root = config.find_zero(g, (a, b))
             x = insert(x̃, k, root)
             ∇ϕ = gradient(phi, x)
-            return f(x) * norm(∇ϕ) / abs(∇ϕ[k])
+            return f(x) * norm(∇ϕ) * inv(abs(∇ϕ[k]))
         end
     end
     return f̃
