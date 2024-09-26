@@ -13,7 +13,7 @@ integrate and `a` and `b` are the bounds of the integration interval.
 # Examples
 
 ```jldoctest; output = false
-qrule1d = GaussLegendre(;order = 5)
+qrule1d = ImplicitIntegration.GaussLegendre(;order = 5)
 quad1d(cos,0,1) ≈ sin(1)
 
 # output
