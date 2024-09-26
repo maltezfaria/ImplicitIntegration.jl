@@ -125,8 +125,8 @@ function quadgen(ϕ, lc::SVector{N,T}, hc::SVector{N,T}; order, surface = false)
     quad   = TensorQuadrature(quad1d)
     config = Config(; quad)
     f      = function (x::SVector{N,T}) where {N,T}
-        return QNode(x, one(T))
-        # return Quadrature([x], [one(T)])
+        # return QNode(x, one(T))
+        return Quadrature([x], [one(T)])
     end
     return integrate(f, ϕ, lc, hc; tol = nothing, surface, config)
 end

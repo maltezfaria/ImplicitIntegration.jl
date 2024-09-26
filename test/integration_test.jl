@@ -60,6 +60,7 @@ order = 5
     @test integrate(x -> 1.0, Q) ≈ 1
 
     @inferred integrate(x -> 1.0, ϕ, a, b)
+    @inferred quadgen(ϕ, a, b; order)
 end
 
 @testset "2D integrals" begin
@@ -117,6 +118,7 @@ end
 
     # FIXME: type-inference fails on 1.10, but passes o 1.12. Maybe related to recursive calls in `integrate`?
     @test_broken @inferred integrate(x -> 1.0, ϕ, a, b)
+    @test_broken @inferred quadgen(ϕ, a, b; order)
 end
 
 @testset "Volume integrals" begin
@@ -163,4 +165,5 @@ end
 
     # FIXME: type-inference fails. Maybe related to recursive calls in `integrate`?
     @test_broken @inferred integrate(x -> 1.0, ϕ, a, b .+ 0.1)
+    @test_broken @inferred quadgen(ϕ, a, b .+ 0.1; order)
 end
