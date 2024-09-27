@@ -21,7 +21,7 @@ assert that `idxs` is sorted without actually checking it.
     return quote
         if CHECK && !issorted(idxs)
             p = sortperm(idxs)
-            idx, vals = idxs[p], vals[p]
+            idxs, vals = idxs[p], vals[p]
         end
         $expr
     end
