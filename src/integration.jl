@@ -41,7 +41,8 @@ where `lc::NTuple` and `hc::NTuple` denote the lower and upper corners of the bo
 
 For a finer control of the integration process, the user can pass a `config`
 object to customize the behavior of various aspects of the algorithm (see
-[`Config`](@ref) for more details).
+[`Config`](@ref) for more details). In such cases the `tol` parameter is ignored
+and `config.quad` is used for the integration.
 
 Note that both `f` and `ϕ` must be callable with a single argument `𝐱` of type
 `SVector`. Furthemore, `ϕ` is expected to return a real value.

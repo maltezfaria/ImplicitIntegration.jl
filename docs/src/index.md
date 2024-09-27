@@ -45,6 +45,4 @@ integrate
 ## Bibliography
 
 ```@bibliography
-Pages = ["index.md"]
-Canonical = false
 ```
