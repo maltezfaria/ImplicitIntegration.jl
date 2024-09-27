@@ -27,10 +27,10 @@ function gradient(f, x)
 end
 
 """
-    bound_gradient(f, U::HyperRectangle) --> (lbs, ubs)
+    bound_gradient(f, U::HyperRectangle) --> bnds
 
 Compute a lower and upper bound for the gradient of a function `f : U → ℝ` valid
-for all `x ∈ U` in the sense that `lbs[i] ≤ ∂f/∂xᵢ(x) ≤ ubs[i]`.
+for all `x ∈ U` in the sense that `bnds[i][1] ≤ ∂f/∂xᵢ(x) ≤ bnds[i][2]`.
 """
 function bound_gradient(f, rec)
     ∇f = x -> gradient(f, x)

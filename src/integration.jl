@@ -19,12 +19,11 @@ The `Config` struct has the following fields:
 - `min_size`: a number used to specify the minimum size of a box to be split
   during the recursion. Recursion stops when the box is smaller than this size.
 """
-@kwdef struct Config{T1,T2,T3}
+@kwdef struct Config{T1,T2}
     find_zero::T1     = Roots.find_zero
-    find_zeros::T2    = Roots.find_zeros
-    quad::T3          = nothing
+    quad::T2          = nothing
     min_qual::Float64 = 0.0
-    min_size::Float64 = 1e-4
+    min_size::Float64 = 1e-8
 end
 
 """
@@ -224,14 +223,16 @@ function _integrand_eval(
         # compute the connected components
         bnds = [a, b]
         for ϕᵢ in phi_vec
-            g = (t) -> ϕᵢ(insert(x̃, k, t))
             if N == 1
-                # possible several zeros
-                append!(bnds, config.find_zeros(g, (a, b)))
+                # possible several zeros. Use internal `find_zeros` method which
+                # works on the function `ϕᵢ` directly so that it can tap into
+                # the `bound` and `bound_gradient` methods.
+                find_zeros!(bnds, ϕᵢ, U, config)
             else
                 # we know that g is monotonic since it corresponds to a
                 # height-direction, so at most a single root exists.
                 # TODO: look up and test Brent's method for this case
+                g = (t) -> ϕᵢ(insert(x̃, k, t))
                 g(a) * g(b) > 0 && continue
                 push!(bnds, config.find_zero(g, (a, b)))
             end
@@ -332,6 +333,60 @@ function cell_type(ϕ, s, U, surface)
             return empty_cell
         else
             return full_cell
+        end
+    end
+end
+
+"""
+    find_zeros(f, U::HyperRectangle{<:,T}, config = Config()) where {T}
+
+Return all zeros of the function `f` in the box `U`. `f` should be callable as
+`f(x::SVector)`.
+
+The `config` argument can be used to customize the behavior of the algorithm by
+passing a different `find_zero` method (e.g. `Roots.find_zero`) and a different
+`min_size` to control the interval length at which the recursion gives up trying
+to find all zeros and resorts instead to a heuristic.
+"""
+function find_zeros(f, U::HyperRectangle{<:,T}, config = Config()) where {T}
+    return find_zeros!(T[], f, U, config)
+end
+
+function find_zeros!(roots, ϕ, U::Segment, config = Config())
+    xl, xu = bounds(U)
+    if norm(xu - xl) < config.min_size
+        # splitting has led to very small boxes, likely due to e.g. degenerate
+        # roots (e.g. x^2 on [-1,1]). Give up on trying to find all zeros and
+        # simply try a bisection.
+        if ϕ(xl) * ϕ(xu) ≤ 0
+            g = (t) -> ϕ(SVector(t))
+            r = config.find_zero(g, (xl[1], xu[1]))
+            push!(roots, r)
+            return roots
+        else # no zeros
+            return roots
+        end
+    end
+
+    ϕl, ϕu = bound(ϕ, U)
+    if ϕl * ϕu > 0 # no zeros in the interval
+        return roots
+    else # maybe there are zeros
+        ∇ϕl, ∇ϕu = bound_gradient(ϕ, U) |> first
+        if ∇ϕl * ∇ϕu > 0 # monotonic, so at most one zero
+            if ϕ(xl) * ϕ(xu) ≤ 0
+                g = (t) -> ϕ(SVector(t))
+                r = config.find_zero(g, (xl[1], xu[1]))
+                push!(roots, r)
+                return roots
+            else
+                return roots
+            end
+        else # can't prove monotonicity nor lack of zeros, so split
+            U1, U2 = split(U, 1)
+            find_zeros!(roots, ϕ, U1, config)
+            find_zeros!(roots, ϕ, U2, config)
+            return roots
         end
     end
 end
