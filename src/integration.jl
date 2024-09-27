@@ -41,10 +41,14 @@ where `lc::NTuple` and `hc::NTuple` denote the lower and upper corners of the bo
 
 For a finer control of the integration process, the user can pass a `config`
 object to customize the behavior of various aspects of the algorithm (see
-[`Config`](@ref) for more details).
+[`Config`](@ref) for more details). In such cases the `tol` parameter is ignored
+and `config.quad` is used for the integration.
 
 Note that both `f` and `ϕ` must be callable with a single argument `𝐱` of type
 `SVector`. Furthemore, `ϕ` is expected to return a real value.
+
+See also [`quadgen`](@ref) if you want to generate a quadrature instead of
+direcly computing the value of the integral.
 
 # Examples
 
@@ -88,7 +92,7 @@ function integrate(
     config = Config(),
 ) where {N,T}
     U = HyperRectangle(lc, hc)
-    RET_TYPE = typeof(f(lc)) # a guess for the return type...
+    RET_TYPE = typeof(f(lc) * one(T) + f(hc) * one(T)) # a guess for the return type...
     ϕ_ = SubFunction{N}(ϕ, SVector{0,Int}(), SVector{0,T}())
     s = surface ? 0 : -1
     return _integrate(f, [ϕ_], [s], U, config, RET_TYPE, Val(surface), tol)
@@ -124,8 +128,8 @@ function _integrate(
         if isnothing(config.quad)
             return HCubature.hcubature(f, xl, xu; atol = tol)[1]
         else
-            return config.quad(f, xl, xu) # full cell
-        end # full cell
+            return config.quad(f, xl, xu)
+        end
     end
     phi_vec = phi_vec[partial_cell_idxs]
     s_vec   = s_vec[partial_cell_idxs]
@@ -171,8 +175,9 @@ function _integrate(
             else
                 Uₗ, Uᵣ = split(U, dir)
             end
-            return _integrate(f, phi_vec, s_vec, Uₗ, config, RET_TYPE, Val(S), tol / 2) +
-                   _integrate(f, phi_vec, s_vec, Uᵣ, config, RET_TYPE, Val(S), tol / 2)
+            tol′ = isnothing(tol) ? nothing : tol / 2
+            return _integrate(f, phi_vec, s_vec, Uₗ, config, RET_TYPE, Val(S), tol′) +
+                   _integrate(f, phi_vec, s_vec, Uᵣ, config, RET_TYPE, Val(S), tol′)
         end
     end
     # k is a good height direction for all the level-set functions, so recurse
@@ -277,7 +282,7 @@ function _surface_integrand_eval(
             root = config.find_zero(g, (a, b))
             x = insert(x̃, k, root)
             ∇ϕ = gradient(phi, x)
-            return f(x) * norm(∇ϕ) / abs(∇ϕ[k])
+            return f(x) * norm(∇ϕ) * inv(abs(∇ϕ[k]))
         end
     end
     return f̃

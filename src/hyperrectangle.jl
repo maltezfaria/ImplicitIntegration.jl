@@ -12,6 +12,7 @@ struct HyperRectangle{N,T<:AbstractFloat}
     lc::SVector{N,T}
     hc::SVector{N,T}
 end
+Base.ndims(::HyperRectangle{N}) where {N} = N
 
 """
     const Segment{T} = HyperRectangle{1,T}
