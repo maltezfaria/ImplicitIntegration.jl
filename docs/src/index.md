@@ -42,6 +42,14 @@ The main function provided by this package is `integrate`:
 integrate
 ```
 
+For situations where you need to compute the integrals of multiple functions
+over *the same domain*, you can use the `quadgen` function to generate a
+quadrature instead:
+
+```@docs
+quadgen
+```
+
 ## Bibliography
 
 ```@bibliography

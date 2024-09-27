@@ -47,6 +47,9 @@ and `config.quad` is used for the integration.
 Note that both `f` and `ϕ` must be callable with a single argument `𝐱` of type
 `SVector`. Furthemore, `ϕ` is expected to return a real value.
 
+See also [`quadgen`](@ref) if you want to generate a quadrature instead of
+direcly computing the value of the integral.
+
 # Examples
 
 To compute the area of a quarter of a disk of radius 1.0:
