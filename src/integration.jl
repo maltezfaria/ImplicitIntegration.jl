@@ -20,7 +20,7 @@ The `Config` struct has the following fields:
   during the recursion. Recursion stops when the box is smaller than this size.
 """
 @kwdef struct Config{T1,T2}
-    find_zero::T1     = Roots.find_zero
+    find_zero::T1     = (f, interval) -> Roots.find_zero(f, interval, Roots.Brent())
     quad::T2          = nothing
     min_qual::Float64 = 0.0
     min_size::Float64 = 1e-8
