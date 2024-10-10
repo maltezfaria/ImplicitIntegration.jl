@@ -9,8 +9,6 @@ The `Config` struct has the following fields:
 
 - `find_zero`: called as `find_zero(f, a, b)`, returns a zero of `f` in the
   interval `[a,b]` (if it exists).
-- `find_zeros`: called as `find_zeros(f, a, b)`, returns all zeros of `f` in the
-  interval `[a,b]` (if they exist).
 - `quad`: called as `quad(f, a::SVector, b::SVector)`, returns an approximation
   to the integral of `f` over [`HyperRectangle(a,b)`(@ref)].
 - `min_qual`: a number between `0` and `1` used to specify the minimum quality
@@ -24,6 +22,26 @@ The `Config` struct has the following fields:
     quad::T2          = nothing
     min_qual::Float64 = 0.0
     min_size::Float64 = 1e-8
+end
+
+"""
+    Config(tol, dim)
+
+Create a `[Config](@ref)` object where all fields try to respect the given
+tolerance `tol`. In practice, this means that:
+
+- `find_zero` uses `xatol=tol` so the implicit surface `ϕ = 0` is only sought to
+  within `tol` of the true surface
+- `min_size` is set to `tol^(1/dim)` so that the recursion stops when the box
+  has a volume/area smaller than `tol`.
+"""
+function Config(tol::Real, dim::Integer)
+    min_size = tol^(1 / dim)
+    return Config(;
+        find_zero = (f, interval) ->
+            Roots.find_zero(f, interval, Roots.Brent(); xatol = tol),
+        min_size = min_size,
+    )
 end
 
 """
@@ -88,7 +106,7 @@ function integrate(
     hc::SVector{N,T};
     surface = false,
     tol = 1e-8,
-    config = Config(),
+    config = Config(tol, surface ? N - 1 : N),
 ) where {N,T}
     U = HyperRectangle(lc, hc)
     RET_TYPE = typeof(f(lc) * one(T) + f(hc) * one(T)) # a guess for the return type...
