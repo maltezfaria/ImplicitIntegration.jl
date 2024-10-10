@@ -9,21 +9,39 @@ The `Config` struct has the following fields:
 
 - `find_zero`: called as `find_zero(f, a, b)`, returns a zero of `f` in the
   interval `[a,b]` (if it exists).
-- `find_zeros`: called as `find_zeros(f, a, b)`, returns all zeros of `f` in the
-  interval `[a,b]` (if they exist).
 - `quad`: called as `quad(f, a::SVector, b::SVector)`, returns an approximation
   to the integral of `f` over [`HyperRectangle(a,b)`(@ref)].
 - `min_qual`: a number between `0` and `1` used to specify the minimum quality
   factor for a height direction to be considered good for recursion. The quality
   factor for a direction `k` is given by `|∂ₖϕ| / |∇ϕ|`.
-- `min_size`: a number used to specify the minimum size of a box to be split
-  during the recursion. Recursion stops when the box is smaller than this size.
+- `min_vol`: a number used to specify the minimum size of a box to be split
+  during the recursion. Recursion stops when the box's volume is smaller than
+  this size. For surface integrals, the size is taken to be the area of the box.
 """
 @kwdef struct Config{T1,T2}
-    find_zero::T1     = Roots.find_zero
+    find_zero::T1     = (f, interval) -> Roots.find_zero(f, interval, Roots.Brent())
     quad::T2          = nothing
     min_qual::Float64 = 0.0
-    min_size::Float64 = 1e-8
+    min_vol::Float64  = 1e-8
+end
+
+"""
+    Config(tol)
+
+Create a `[Config](@ref)` object where all fields try to respect the given
+tolerance `tol`. In practice, the following heuristics are used:
+
+- `find_zero` uses `xatol=tol` so the implicit surface `ϕ = 0` is only sought to
+  within `tol` of the true surface
+- `min_vol` is set to `tol` so that the recursion stops when the integration
+  measure of the box is smaller than `tol`
+"""
+function Config(tol::Real)
+    return Config(;
+        find_zero = (f, interval) ->
+            Roots.find_zero(f, interval, Roots.Brent(); xatol = tol),
+        min_vol = tol,
+    )
 end
 
 """
@@ -88,7 +106,7 @@ function integrate(
     hc::SVector{N,T};
     surface = false,
     tol = 1e-8,
-    config = Config(),
+    config = Config(tol),
 ) where {N,T}
     U = HyperRectangle(lc, hc)
     RET_TYPE = typeof(f(lc) * one(T) + f(hc) * one(T)) # a guess for the return type...
@@ -164,10 +182,11 @@ function _integrate(
         else
             # Direction k now good for recursion on dimension, so immediately
             # recurse on the box size
-            h, dir = findmax(xu - xl)
+            _, dir = findmax(xu - xl)
+            vol    = S ? sum(xu - xl) : prod(xu - xl)
             # split along largest direction
             @debug "Splitting $U along $dir"
-            if h < config.min_size # stop splitting if the box is too small
+            if vol < config.min_vol # stop splitting if the box is too small
                 @warn "Terminal case of recursion reached on $U, resorting to low-order method."
                 @debug "Tried to recurse along direction $k, but got a quality factor of $qual."
                 return f(xc) * prod(xu - xl)
@@ -344,9 +363,9 @@ Return all zeros of the function `f` in the box `U`. `f` should be callable as
 `f(x::SVector)`.
 
 The `config` argument can be used to customize the behavior of the algorithm by
-passing a different `find_zero` method (e.g. `Roots.find_zero`) and a different
-`min_size` to control the interval length at which the recursion gives up trying
-to find all zeros and resorts instead to a heuristic.
+passing e.g. a different `find_zero` method (e.g. `Roots.find_zero`) and a
+different `min_vol` to control the box size at which recursion gives up trying
+to perform a high-order integration and resorts to a midpoint rule.
 """
 function find_zeros(f, U::HyperRectangle{<:,T}, config = Config()) where {T}
     return find_zeros!(T[], f, U, config)
@@ -354,7 +373,7 @@ end
 
 function find_zeros!(roots, ϕ, U::Segment, config = Config())
     xl, xu = bounds(U)
-    if norm(xu - xl) < config.min_size
+    if norm(xu - xl) < config.min_vol
         # splitting has led to very small boxes, likely due to e.g. degenerate
         # roots (e.g. x^2 on [-1,1]). Give up on trying to find all zeros and
         # simply try a bisection.
