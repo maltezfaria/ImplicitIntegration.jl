@@ -67,6 +67,15 @@ function LogInfo(dim::Integer)
     return LogInfo(subdivs)
 end
 
+## overload the display  method to better visualize the info
+function Base.show(io::IO, ::MIME"text/plain", info::LogInfo)
+    println(io, "LogInfo:")
+    println(io, "|- Subdivisions:")
+    for (i, s) in enumerate(info.subdivisions)
+        println(io, "|-- Dimension $i: $s subdivisions")
+    end
+end
+
 """
     integrate(f, ϕ, lc, hc; tol=1e-8, surface=false, config = Config())
 
