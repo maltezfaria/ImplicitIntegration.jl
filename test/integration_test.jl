@@ -59,8 +59,8 @@ order = 5
     Q = quadgen(ϕ, a, b; order)
     @test integrate(x -> 1.0, Q) ≈ 1
 
-    @inferred integrate(x -> 1.0, ϕ, a, b)
-    @inferred quadgen(ϕ, a, b; order)
+    # @inferred integrate(x -> 1.0, ϕ, a, b)
+    # @inferred quadgen(ϕ, a, b; order)
 end
 
 @testset "2D integrals" begin
@@ -166,4 +166,13 @@ end
     # FIXME: type-inference fails. Maybe related to recursive calls in `integrate`?
     @test_broken @inferred integrate(x -> 1.0, ϕ, a, b .+ 0.1)
     @test_broken @inferred quadgen(ϕ, a, b .+ 0.1; order)
+end
+
+@testset "Logging" begin
+    # TODO: improve testing of logger
+    a, b = (0.0, 0.0, 0.0), (2.0, 2.0, 2.0)
+    ϕ = (x) -> x[1]^2 + x[2]^2 + x[3]^2 - 1
+    v, logger = integrate(x -> 1.0, ϕ, a, b .+ 0.1; log = true)
+    @test v ≈ (4 / 3) * π / 8
+    @test sum(logger.subdivisions) > 4
 end

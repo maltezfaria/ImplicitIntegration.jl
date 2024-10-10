@@ -45,6 +45,38 @@ function Config(tol::Real)
 end
 
 """
+    struct LogInfo
+
+A structure to store logging information for integration processes.
+
+# Fields
+- `subdivisions::Vector{Int}`: A vector containing the subdivisions per
+  dimension used during the integration process.
+"""
+struct LogInfo
+    subdivisions::Vector{Int}
+end
+
+"""
+    LogInfo(d::Integer)
+
+Initialize a `LogInfo` object for integrating over `ℝᵈ`.
+"""
+function LogInfo(dim::Integer)
+    subdivs = zeros(Int, dim)
+    return LogInfo(subdivs)
+end
+
+## overload the display  method to better visualize the info
+function Base.show(io::IO, ::MIME"text/plain", info::LogInfo)
+    println(io, "LogInfo:")
+    println(io, "|- Subdivisions:")
+    for (i, s) in enumerate(info.subdivisions)
+        println(io, "|-- Dimension $i: $s subdivisions")
+    end
+end
+
+"""
     integrate(f, ϕ, lc, hc; tol=1e-8, surface=false, config = Config())
 
 Integrate the function `f` over an implict domain defined by:
@@ -107,12 +139,15 @@ function integrate(
     surface = false,
     tol = 1e-8,
     config = Config(tol),
+    log = false,
 ) where {N,T}
     U = HyperRectangle(lc, hc)
     RET_TYPE = typeof(f(lc) * one(T) + f(hc) * one(T)) # a guess for the return type...
     ϕ_ = SubFunction{N}(ϕ, SVector{0,Int}(), SVector{0,T}())
     s = surface ? 0 : -1
-    return _integrate(f, [ϕ_], [s], U, config, RET_TYPE, Val(surface), tol)
+    logger = log ? LogInfo(N) : nothing
+    val = _integrate(f, [ϕ_], [s], U, config, RET_TYPE, Val(surface), tol, logger)
+    return log ? (val, logger) : val
 end
 
 function integrate(f, ϕ, lc, hc; kwargs...)
@@ -129,16 +164,17 @@ function _integrate(
     s_vec,
     U::HyperRectangle{DIM,T},
     config,
-    ::Type{RET_TYPE},
+    ::Type{RTYPE},
     ::Val{S},
     tol,
-) where {DIM,T,RET_TYPE,S}
+    logger,
+) where {DIM,T,RTYPE,S}
     xl, xu = bounds(U)
     # Start by prunning phi_vec...
     partial_cell_idxs = Int[]
     for i in eachindex(phi_vec, s_vec)
         c = cell_type(phi_vec[i], s_vec[i], U, S)
-        c == empty_cell && return zero(RET_TYPE)
+        c == empty_cell && return zero(RTYPE)
         c == partial_cell && push!(partial_cell_idxs, i)
     end
     if length(partial_cell_idxs) == 0 # full cell
@@ -154,7 +190,7 @@ function _integrate(
     # is neither empty nor full. Next try to find a good direction to recurse
     # on. We will choose the direction with the largest gradient.
     if DIM == 1 # base case
-        f̃ = _integrand_eval(f, phi_vec, s_vec, U, 1, config, RET_TYPE, tol)
+        f̃ = _integrand_eval(f, phi_vec, s_vec, U, 1, config, RTYPE, tol, logger)
         x̃ = SVector{0,T}() # zero-argument vector to evaluate `f̃` (a const.)
         return f̃(x̃)
     end
@@ -192,10 +228,11 @@ function _integrate(
                 return f(xc) * prod(xu - xl)
             else
                 Uₗ, Uᵣ = split(U, dir)
+                isnothing(logger) || (logger.subdivisions[DIM] += 1)
             end
             tol′ = isnothing(tol) ? nothing : tol / 2
-            return _integrate(f, phi_vec, s_vec, Uₗ, config, RET_TYPE, Val(S), tol′) +
-                   _integrate(f, phi_vec, s_vec, Uᵣ, config, RET_TYPE, Val(S), tol′)
+            return _integrate(f, phi_vec, s_vec, Uₗ, config, RTYPE, Val(S), tol′, logger) +
+                   _integrate(f, phi_vec, s_vec, Uᵣ, config, RTYPE, Val(S), tol′, logger)
         end
     end
     # k is a good height direction for all the level-set functions, so recurse
@@ -204,11 +241,31 @@ function _integrate(
     Ũ = remove_dimension(U, k)
     if S
         @assert length(phi_vec) == 1
-        f̃ = _surface_integrand_eval(f, phi_vec[1], U, k, config, RET_TYPE)
-        return _integrate(f̃, phi_vec_new, s_vec_new, Ũ, config, RET_TYPE, Val(false), tol)
+        f̃ = _surface_integrand_eval(f, phi_vec[1], U, k, config, RTYPE)
+        return _integrate(
+            f̃,
+            phi_vec_new,
+            s_vec_new,
+            Ũ,
+            config,
+            RTYPE,
+            Val(false),
+            tol,
+            logger,
+        )
     else
-        f̃ = _integrand_eval(f, phi_vec, s_vec, U, k, config, RET_TYPE, tol)
-        return _integrate(f̃, phi_vec_new, s_vec_new, Ũ, config, RET_TYPE, Val(false), tol)
+        f̃ = _integrand_eval(f, phi_vec, s_vec, U, k, config, RTYPE, tol, logger)
+        return _integrate(
+            f̃,
+            phi_vec_new,
+            s_vec_new,
+            Ũ,
+            config,
+            RTYPE,
+            Val(false),
+            tol,
+            logger,
+        )
     end
 end
 
@@ -230,6 +287,7 @@ function _integrand_eval(
     config,
     ::Type{RET_TYPE},
     tol,
+    logger,
 ) where {N,RET_TYPE}
     xl, xu = bounds(U)
     a, b = xl[k], xu[k]
@@ -246,7 +304,7 @@ function _integrand_eval(
                 # possible several zeros. Use internal `find_zeros` method which
                 # works on the function `ϕᵢ` directly so that it can tap into
                 # the `bound` and `bound_gradient` methods.
-                find_zeros!(bnds, ϕᵢ, U, config)
+                find_zeros!(bnds, ϕᵢ, U, config, logger)
             else
                 # we know that g is monotonic since it corresponds to a
                 # height-direction, so at most a single root exists.
@@ -367,11 +425,16 @@ passing e.g. a different `find_zero` method (e.g. `Roots.find_zero`) and a
 different `min_vol` to control the box size at which recursion gives up trying
 to perform a high-order integration and resorts to a midpoint rule.
 """
-function find_zeros(f, U::HyperRectangle{<:,T}, config = Config()) where {T}
-    return find_zeros!(T[], f, U, config)
+function find_zeros(
+    f,
+    U::HyperRectangle{<:,T},
+    config = Config(),
+    logger = nothing,
+) where {T}
+    return find_zeros!(T[], f, U, config, logger)
 end
 
-function find_zeros!(roots, ϕ, U::Segment, config = Config())
+function find_zeros!(roots, ϕ, U::Segment, config, logger)
     xl, xu = bounds(U)
     if norm(xu - xl) < config.min_vol
         # splitting has led to very small boxes, likely due to e.g. degenerate
@@ -403,8 +466,9 @@ function find_zeros!(roots, ϕ, U::Segment, config = Config())
             end
         else # can't prove monotonicity nor lack of zeros, so split
             U1, U2 = split(U, 1)
-            find_zeros!(roots, ϕ, U1, config)
-            find_zeros!(roots, ϕ, U2, config)
+            isnothing(logger) || (logger.subdivisions[1] += 1) # one-dimensional subdivision
+            find_zeros!(roots, ϕ, U1, config, logger)
+            find_zeros!(roots, ϕ, U2, config, logger)
             return roots
         end
     end

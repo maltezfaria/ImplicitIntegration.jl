@@ -173,15 +173,8 @@ true
 
 
 """
-function quadgen(
-    ϕ,
-    lc::SVector{N,T},
-    hc::SVector{N,T};
-    order,
-    surface = false,
-    config = nothing,
-) where {N,T}
-    if isnothing(config)
+function quadgen(ϕ, lc::SVector{N,T}, hc::SVector{N,T}; order, kwargs...) where {N,T}
+    if !haskey(kwargs, :config)
         quad1d = GaussLegendre(; order = order)
         quad = TensorQuadrature(quad1d)
         config = Config(; quad)
@@ -195,7 +188,7 @@ function quadgen(
         # overload operations on it.
         return Quadrature([x], [one(T)])
     end
-    return integrate(f, ϕ, lc, hc; tol = nothing, surface, config)
+    return integrate(f, ϕ, lc, hc; tol = nothing, config, kwargs...)
 end
 
 function quadgen(ϕ, lc, hc, args...; kwargs...)
