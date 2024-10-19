@@ -9,7 +9,7 @@ import HCubature
 import StaticArrays: SVector, MVector, insert, deleteat, setindex, popfirst, pop, push
 
 # FIXME: understand the patch below and move it upstream if necessary
-IntervalArithmetic.Interval{T}(x::T) where {T<:Real} = IntervalArithmetic.interval(x)
+IntervalArithmetic.Interval{T}(x) where {T<:Real} = IntervalArithmetic.interval(x)
 
 include("utils.jl")
 include("hyperrectangle.jl")
