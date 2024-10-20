@@ -1,47 +1,29 @@
 """
     struct Config
 
-The `Config` struct represents the configuration for implicit integration,
-passed to the [`integrate`](@ref) function to customize the behavior of the
-algorithm.
+The `Config` struct represents the configuration for implicit integration, passed to the
+[`integrate`](@ref) function to customize the behavior of the algorithm. It contains the
+following fields:
 
-The `Config` struct has the following fields:
-
-- `find_zero`: called as `find_zero(f, a, b)`, returns a zero of `f` in the
-  interval `[a,b]` (if it exists).
-- `quad`: called as `quad(f, a::SVector, b::SVector)`, returns an approximation
-  to the integral of `f` over [`HyperRectangle(a,b)`(@ref)].
-- `min_qual`: a number between `0` and `1` used to specify the minimum quality
-  factor for a height direction to be considered good for recursion. The quality
-  factor for a direction `k` is given by `|∂ₖϕ| / |∇ϕ|`.
-- `min_vol`: a number used to specify the minimum size of a box to be split
-  during the recursion. Recursion stops when the box's volume is smaller than
-  this size. For surface integrals, the size is taken to be the area of the box.
+  - `find_zero` a function with signature `(f, a, b, tol) --> x` such that `f(x) ≈ 0`, `a ≤ x ≤ b`. The tolerance `tol` is used to specify the absolule tolerance of the zero
+    approximation (e.g. `xatol` in `Roots`).
+  - `quad`: a function with signature `quad(f, a, b, tol) --> (I,E)` such that `I`
+    approximates the integral of `f` over `[a,b]` and `E` is the estimated error. `a` and `b`
+    `Tuple`(s)/`SVector`(s) specifying the lower and upper bounds of the integration domain,
+    and `tol` is the desired absolute tolerance.
+  - `min_vol`: a number used to specify the minimum volume of a box for it to be split
+    further. If the volume of a box is less than `min_vol`, the spatial recursion stops and a
+    low-order method is used to approximate the integral.
+  - `min_qual`: a number between `0` and `1` used to specify the minimum quality factor for a
+    height direction to be considered valid for recursion. The quality factor for a direction
+    `k` is given by `|∂ₖϕ| / |∇ϕ|`.
 """
-@kwdef struct Config{T1,T2}
-    find_zero::T1     = (f, interval) -> Roots.find_zero(f, interval, Roots.Brent())
-    quad::T2          = nothing
+@kwdef struct Config{T1,T2,T3}
+    # find_zero::T1     = (f, a, b, tol) -> Roots.find_zero(f, (a,b), Roots.Brent())
+    find_zero::T1     = (f, a, b, tol) -> Roots.find_zero(f, (a, b), Roots.Brent(); xatol = tol)
+    quad::T2          = (f, a, b, tol) -> HCubature.hcubature(f, a, b; atol = tol)
+    min_vol::T3       = (tol) -> sqrt(eps(Float64))
     min_qual::Float64 = 0.0
-    min_vol::Float64  = 1e-8
-end
-
-"""
-    Config(tol)
-
-Create a `[Config](@ref)` object where all fields try to respect the given
-tolerance `tol`. In practice, the following heuristics are used:
-
-- `find_zero` uses `xatol=tol` so the implicit surface `ϕ = 0` is only sought to
-  within `tol` of the true surface
-- `min_vol` is set to `tol` so that the recursion stops when the integration
-  measure of the box is smaller than `tol`
-"""
-function Config(tol::Real)
-    return Config(;
-        find_zero = (f, interval) ->
-            Roots.find_zero(f, interval, Roots.Brent(); xatol = tol),
-        min_vol = tol,
-    )
 end
 
 """
@@ -50,11 +32,15 @@ end
 A structure to store logging information for integration processes.
 
 # Fields
-- `subdivisions::Vector{Int}`: A vector containing the subdivisions per
-  dimension used during the integration process.
+
+  - `subdivisions::Vector{Int}`: A vector containing the subdivisions per
+    dimension used during the integration process.
+  - `loworder::Int`: The number of times the low-order method was used.
 """
-struct LogInfo
+mutable struct LogInfo
     subdivisions::Vector{Int}
+    loworder::Int
+    fullcells::Int
 end
 
 """
@@ -64,40 +50,46 @@ Initialize a `LogInfo` object for integrating over `ℝᵈ`.
 """
 function LogInfo(dim::Integer)
     subdivs = zeros(Int, dim)
-    return LogInfo(subdivs)
+    loworder = 0
+    fullcells = 0
+    return LogInfo(subdivs, loworder, fullcells)
 end
 
-## overload the display  method to better visualize the info
+## overload the display method to better visualize the info
 function Base.show(io::IO, ::MIME"text/plain", info::LogInfo)
     println(io, "LogInfo:")
     println(io, "|- Subdivisions:")
     for (i, s) in enumerate(info.subdivisions)
         println(io, "|-- Dimension $i: $s subdivisions")
     end
+    info.loworder > 0 && println(io, "|- Low-order used $(info.loworder) times")
+    return io
 end
 
 """
-    integrate(f, ϕ, lc, hc; tol=1e-8, surface=false, config = Config())
+    integrate(f, ϕ, lc, hc; tol=1e-8, surface=false, log = false, config = Config()) -->
+    (val, logger)
 
 Integrate the function `f` over an implict domain defined by:
 
-- `Ω = {lc ≤ 𝐱 ≤ hc: ϕ(𝐱) < 0}` if `surface = false`
-- `Γ = {lc ≤ 𝐱 ≤ hc: ϕ(𝐱) = 0}` if `surface = true`
+  - `Ω = {lc ≤ 𝐱 ≤ hc: ϕ(𝐱) < 0}` if `surface = false`
+  - `Γ = {lc ≤ 𝐱 ≤ hc: ϕ(𝐱) = 0}` if `surface = true`
 
 where `lc::NTuple` and `hc::NTuple` denote the lower and upper corners of the bounding box.
 
 `tol` specifies the desired (absolute) tolerance for the approximation.
 
-For a finer control of the integration process, the user can pass a `config`
-object to customize the behavior of various aspects of the algorithm (see
-[`Config`](@ref) for more details). In such cases the `tol` parameter is ignored
-and `config.quad` is used for the integration.
+The function returns a tuple `(val, logger)` where `val` is the approximated value, and
+`logger` is a [`LogInfo`](@ref) object containing information about the integration process.
 
-Note that both `f` and `ϕ` must be callable with a single argument `𝐱` of type
-`SVector`. Furthemore, `ϕ` is expected to return a real value.
+For a finer control over the integration process, pass a `config` object (see
+[`Config`](@ref)).
 
-See also [`quadgen`](@ref) if you want to generate a quadrature instead of
-direcly computing the value of the integral.
+Note that both `f` and `ϕ` must be callable with a single argument `𝐱` of type `SVector`.
+Furthemore, `ϕ` is expected to return a real value.
+
+See also [`quadgen`](@ref) if you want to generate a quadrature instead of direcly computing
+the value of the integral.
 
 # Examples
 
@@ -107,7 +99,8 @@ To compute the area of a quarter of a disk of radius 1.0:
 a, b = (0.0, 0.0), (1.5, 1.5)
 ϕ = (x) -> x[1]^2 + x[2]^2 - 1
 f = (x) -> 1.0
-integrate(f, ϕ, a, b) ≈ π / 4 # area of quarter of a disk
+res = integrate(f, ϕ, a, b) # area of quarter of a disk
+res.val ≈ π / 4
 
 # output
 
@@ -121,15 +114,14 @@ To compute the perimeter of a quarter of a circle of radius 1.0:
 a, b = (0.0, 0.0), (1.5, 1.5)
 ϕ = (x) -> x[1]^2 + x[2]^2 - 1
 f = (x) -> 1.0
-integrate(x -> 1.0, ϕ, a, b; surface = true) ≈ 2π / 4 # perimeter of quarter of a circle
+res = integrate(x -> 1.0, ϕ, a, b; surface = true) # perimeter of quarter of a circle
+res.val ≈ 2π / 4
 
 # output
 
 true
 
 ```
-
-
 """
 function integrate(
     f,
@@ -138,16 +130,15 @@ function integrate(
     hc::SVector{N,T};
     surface = false,
     tol = 1e-8,
-    config = Config(tol),
-    log = false,
+    config = Config(),
 ) where {N,T}
     U = HyperRectangle(lc, hc)
     RET_TYPE = typeof(f(lc) * one(T) + f(hc) * one(T)) # a guess for the return type...
     ϕ_ = SubFunction{N}(ϕ, SVector{0,Int}(), SVector{0,T}())
     s = surface ? 0 : -1
-    logger = log ? LogInfo(N) : nothing
+    logger = LogInfo(N)
     val = _integrate(f, [ϕ_], [s], U, config, RET_TYPE, Val(surface), tol, logger)
-    return log ? (val, logger) : val
+    return (; val, logger)
 end
 
 function integrate(f, ϕ, lc, hc; kwargs...)
@@ -178,20 +169,19 @@ function _integrate(
         c == partial_cell && push!(partial_cell_idxs, i)
     end
     if length(partial_cell_idxs) == 0 # full cell
-        if isnothing(config.quad)
-            return HCubature.hcubature(f, xl, xu; atol = tol)[1]
-        else
-            return config.quad(f, xl, xu)
-        end
+        logger.fullcells += 1
+        val, _ = config.quad(f, xl, xu, tol)
+        return val
     end
     phi_vec = phi_vec[partial_cell_idxs]
     s_vec   = s_vec[partial_cell_idxs]
-    # Finished prunning. If we did not return before this point, then the domain
-    # is neither empty nor full. Next try to find a good direction to recurse
-    # on. We will choose the direction with the largest gradient.
+    # Finished prunning. If we did not return before this point, then the domain is neither
+    # empty nor full. Next try to find a good direction to recurse on. We will choose the
+    # direction with the largest gradient.
     if DIM == 1 # base case
         f̃ = _integrand_eval(f, phi_vec, s_vec, U, 1, config, RTYPE, tol, logger)
         x̃ = SVector{0,T}() # zero-argument vector to evaluate `f̃` (a const.)
+        @debug "Reached 1D base case, evaluating integrand at $x̃"
         return f̃(x̃)
     end
     xc = (xl + xu) / 2
@@ -219,20 +209,33 @@ function _integrate(
             # Direction k now good for recursion on dimension, so immediately
             # recurse on the box size
             _, dir = findmax(xu - xl)
-            vol    = S ? sum(xu - xl) : prod(xu - xl)
+            vol = S ? sum(xu - xl) : prod(xu - xl)
             # split along largest direction
-            @debug "Splitting $U along $dir"
-            if vol < config.min_vol # stop splitting if the box is too small
-                @warn "Terminal case of recursion reached on $U, resorting to low-order method."
-                @debug "Tried to recurse along direction $k, but got a quality factor of $qual."
-                return f(xc) * prod(xu - xl)
-            else
+            if vol < config.min_vol(tol) # stop splitting if the box is too small
+                logger.loworder += 1
+                @debug "Terminal case of recursion reached on $U, resorting to low-order method."
+                if !S && all(i -> ϕ_vec[i](xc) * s_vec[i] > 0, 1:length(ϕ_vec))
+                    return f(xc) * prod(xu - xl)
+                else
+                    return zero(RTYPE)
+                end
+            else # split the box
+                @debug "Splitting $U along $dir"
                 Uₗ, Uᵣ = split(U, dir)
-                isnothing(logger) || (logger.subdivisions[DIM] += 1)
+                logger.subdivisions[DIM] += 1
+                tol /= 2 # FIXME: halving the tolerance is a way too much in practice...
+                return _integrate(
+                    f,
+                    phi_vec,
+                    s_vec,
+                    Uₗ,
+                    config,
+                    RTYPE,
+                    Val(S),
+                    tol,
+                    logger,
+                ) + _integrate(f, phi_vec, s_vec, Uᵣ, config, RTYPE, Val(S), tol, logger)
             end
-            tol′ = isnothing(tol) ? nothing : tol / 2
-            return _integrate(f, phi_vec, s_vec, Uₗ, config, RTYPE, Val(S), tol′, logger) +
-                   _integrate(f, phi_vec, s_vec, Uᵣ, config, RTYPE, Val(S), tol′, logger)
         end
     end
     # k is a good height direction for all the level-set functions, so recurse
@@ -241,7 +244,7 @@ function _integrate(
     Ũ = remove_dimension(U, k)
     if S
         @assert length(phi_vec) == 1
-        f̃ = _surface_integrand_eval(f, phi_vec[1], U, k, config, RTYPE)
+        f̃ = _surface_integrand_eval(f, phi_vec[1], U, k, config, RTYPE, tol)
         return _integrate(
             f̃,
             phi_vec_new,
@@ -271,12 +274,11 @@ end
 
 ## Algorithm 1 of Saye 2015
 """
-    _integrand_eval(f, V::ImplicitDomain{N}, dir, quad1d)
+    _integrand_eval(f, phi_vec, s_vec, U, k, config, ::Type{RET_TYPE}, tol, logger)
 
-Return a function `f̃ : ℝᴺ⁻¹ -> ℝ` that approximates the one-dimensional
-integral over `I(x̃) ⊂ ℝ` of the function `t -> f(insert(x̃, k, t))`, where the
-integration domain `I` is defined as `I(x̃) = {t ∈ [a,b] :
-sᵢ*ϕᵢ(insert(̃x,k,t) ≥ 0 ∀ (ϕᵢ,sᵢ) ∈ V)}`.
+Return a function `f̃ : ℝᴺ⁻¹ -> ℝ` that approximates the one-dimensional integral over
+`I(x̃) ⊂ ℝ` of the function `t -> f(insert(x̃, k, t))`, where the integration domain `I` is
+defined as `I(x̃) = {t ∈ [a,b] : sᵢ*ϕᵢ(insert(̃x,k,t) ≥ 0 ∀ (ϕᵢ,sᵢ) ∈ V)}`.
 """
 function _integrand_eval(
     f,
@@ -291,11 +293,6 @@ function _integrand_eval(
 ) where {N,RET_TYPE}
     xl, xu = bounds(U)
     a, b = xl[k], xu[k]
-    quad = if isnothing(config.quad)
-        (f, a, b) -> HCubature.hcubature(f, a, b; atol = tol)[1]
-    else
-        config.quad
-    end
     f̃ = (x̃) -> begin
         # compute the connected components
         bnds = [a, b]
@@ -304,14 +301,13 @@ function _integrand_eval(
                 # possible several zeros. Use internal `find_zeros` method which
                 # works on the function `ϕᵢ` directly so that it can tap into
                 # the `bound` and `bound_gradient` methods.
-                find_zeros!(bnds, ϕᵢ, U, config, logger)
+                _find_zeros!(bnds, ϕᵢ, U, config, tol, logger)
             else
                 # we know that g is monotonic since it corresponds to a
                 # height-direction, so at most a single root exists.
-                # TODO: look up and test Brent's method for this case
                 g = (t) -> ϕᵢ(insert(x̃, k, t))
                 g(a) * g(b) > 0 && continue
-                push!(bnds, config.find_zero(g, (a, b)))
+                push!(bnds, config.find_zero(g, a, b, tol))
             end
         end
         sort!(bnds)
@@ -332,10 +328,11 @@ function _integrand_eval(
             end
             skip && continue
             # add the contribution of the segment by performing a 1D quadrature.
-            acc += quad(SVector(rᵢ), SVector(rᵢ₊₁)) do (t,)
+            val, _ = config.quad(SVector(rᵢ), SVector(rᵢ₊₁), tol) do (t,)
                 x = insert(x̃, k, t)
                 return f(x)
             end
+            acc += val
         end
         return acc
     end
@@ -349,6 +346,7 @@ function _surface_integrand_eval(
     k::Int,
     config,
     ::Type{RET_TYPE},
+    tol,
 ) where {N,RET_TYPE}
     xl, xu = bounds(U)
     a, b = xl[k], xu[k]
@@ -357,7 +355,7 @@ function _surface_integrand_eval(
         if g(a) * g(b) > 0
             return zero(RET_TYPE)
         else
-            root = config.find_zero(g, (a, b))
+            root = config.find_zero(g, a, b, tol)
             x = insert(x̃, k, root)
             ∇ϕ = gradient(phi, x)
             return f(x) * norm(∇ϕ) * inv(abs(∇ϕ[k]))
@@ -415,34 +413,20 @@ function cell_type(ϕ, s, U, surface)
 end
 
 """
-    find_zeros(f, U::HyperRectangle{<:,T}, config = Config()) where {T}
+    _find_zeros!(roots, f, U::Segment, config, tol)
 
-Return all zeros of the function `f` in the box `U`. `f` should be callable as
-`f(x::SVector)`.
-
-The `config` argument can be used to customize the behavior of the algorithm by
-passing e.g. a different `find_zero` method (e.g. `Roots.find_zero`) and a
-different `min_vol` to control the box size at which recursion gives up trying
-to perform a high-order integration and resorts to a midpoint rule.
+Return all zeros of the function `f` in the `Segment` `U`. `f` should be callable as
+`f(x::SVector{1})`.
 """
-function find_zeros(
-    f,
-    U::HyperRectangle{<:,T},
-    config = Config(),
-    logger = nothing,
-) where {T}
-    return find_zeros!(T[], f, U, config, logger)
-end
-
-function find_zeros!(roots, ϕ, U::Segment, config, logger)
+function _find_zeros!(roots, ϕ, U::Segment, config, tol, logger)
     xl, xu = bounds(U)
-    if norm(xu - xl) < config.min_vol
+    if norm(xu - xl) < config.min_vol(tol)
         # splitting has led to very small boxes, likely due to e.g. degenerate
         # roots (e.g. x^2 on [-1,1]). Give up on trying to find all zeros and
         # simply try a bisection.
         if ϕ(xl) * ϕ(xu) ≤ 0
             g = (t) -> ϕ(SVector(t))
-            r = config.find_zero(g, (xl[1], xu[1]))
+            r = config.find_zero(g, xl[1], xu[1], tol)
             push!(roots, r)
             return roots
         else # no zeros
@@ -458,7 +442,7 @@ function find_zeros!(roots, ϕ, U::Segment, config, logger)
         if ∇ϕl * ∇ϕu > 0 # monotonic, so at most one zero
             if ϕ(xl) * ϕ(xu) ≤ 0
                 g = (t) -> ϕ(SVector(t))
-                r = config.find_zero(g, (xl[1], xu[1]))
+                r = config.find_zero(g, xl[1], xu[1], tol)
                 push!(roots, r)
                 return roots
             else
@@ -467,8 +451,8 @@ function find_zeros!(roots, ϕ, U::Segment, config, logger)
         else # can't prove monotonicity nor lack of zeros, so split
             U1, U2 = split(U, 1)
             isnothing(logger) || (logger.subdivisions[1] += 1) # one-dimensional subdivision
-            find_zeros!(roots, ϕ, U1, config, logger)
-            find_zeros!(roots, ϕ, U2, config, logger)
+            _find_zeros!(roots, ϕ, U1, config, tol, logger)
+            _find_zeros!(roots, ϕ, U2, config, tol, logger)
             return roots
         end
     end

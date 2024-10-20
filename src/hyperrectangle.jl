@@ -4,9 +4,9 @@
 A struct representing a hyperrectangle in N-dimensional space.
 
 # Fields
-- `lc::SVector{N,T}`: The lower corner of the hyperrectangle.
-- `hc::SVector{N,T}`: The upper corner of the hyperrectangle.
 
+  - `lc::SVector{N,T}`: The lower corner of the hyperrectangle.
+  - `hc::SVector{N,T}`: The upper corner of the hyperrectangle.
 """
 struct HyperRectangle{N,T<:AbstractFloat}
     lc::SVector{N,T}
@@ -27,10 +27,12 @@ const Segment{T} = HyperRectangle{1,T}
 Get the lower and upper bounds of a `HyperRectangle`.
 
 # Arguments
-- `rect::HyperRectangle`: The `HyperRectangle` object.
+
+  - `rect::HyperRectangle`: The `HyperRectangle` object.
 
 # Returns
-- A tuple `(lc, hc)` representing the lower and upper bounds of the `HyperRectangle`.
+
+  - A tuple `(lc, hc)` representing the lower and upper bounds of the `HyperRectangle`.
 """
 bounds(rect::HyperRectangle) = (rect.lc, rect.hc)
 
@@ -40,10 +42,12 @@ bounds(rect::HyperRectangle) = (rect.lc, rect.hc)
 Remove a dimension from a `HyperRectangle` by deleting the `k`-th element from the lower and upper corners.
 
 # Arguments
-- `rect::HyperRectangle`: The input hyperrectangle.
-- `k`: The index of the dimension to be removed.
+
+  - `rect::HyperRectangle`: The input hyperrectangle.
+  - `k`: The index of the dimension to be removed.
 
 # Returns
+
 A new `HyperRectangle` with the `k`-th dimension removed.
 """
 function remove_dimension(rect::HyperRectangle, k)
@@ -57,12 +61,14 @@ end
 Split a hyperrectangle `U` along the specified direction `dir`.
 
 # Arguments
-- `U::HyperRectangle`: The hyperrectangle to be split.
-- `dir`: The direction along which to split the hyperrectangle.
+
+  - `U::HyperRectangle`: The hyperrectangle to be split.
+  - `dir`: The direction along which to split the hyperrectangle.
 
 # Returns
-- `Uₗ`: The left half of the split hyperrectangle.
-- `Uᵣ`: The right half of the split hyperrectangle.
+
+  - `Uₗ`: The left half of the split hyperrectangle.
+  - `Uᵣ`: The right half of the split hyperrectangle.
 """
 function split(U::HyperRectangle, dir)
     lc, hc = bounds(U)

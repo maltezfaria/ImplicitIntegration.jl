@@ -13,8 +13,8 @@ integrate and `a` and `b` are the bounds of the integration interval.
 # Examples
 
 ```jldoctest; output = false
-quad1d = ImplicitIntegration.GaussLegendre(;order = 20)
-quad1d(cos,0,1) ≈ sin(1)
+quad1d = ImplicitIntegration.GaussLegendre(; order = 20)
+quad1d(cos, 0, 1) ≈ sin(1)
 
 # output
 
@@ -40,8 +40,7 @@ end
 """
     TensorQuadrature(quad1d)
 
-Given a 1D quadrature rule `quad1d` with signature `quad1d(f, a::Number,
-b::Number)`, return a tensor product quadrature rule callable through
+Given a 1D quadrature rule `quad1d` with signature `quad1d(f, a::Number, b::Number)`, return a tensor product quadrature rule callable through
 `quadnd(f,a::SVector{N}, b::SVector{N})`.
 """
 struct TensorQuadrature{T}
@@ -122,8 +121,8 @@ Base.zero(q::Quadrature) = zero(typeof(q))
 Return a [`Quadrature`](@ref) to integrate a function over an implict domain
 defined by:
 
-- `Ω = {lc ≤ 𝐱 ≤ hc: ϕ(𝐱) < 0}` if `surface = false`
-- `Γ = {lc ≤ 𝐱 ≤ hc: ϕ(𝐱) = 0}` if `surface = true`
+  - `Ω = {lc ≤ 𝐱 ≤ hc: ϕ(𝐱) < 0}` if `surface = false`
+  - `Γ = {lc ≤ 𝐱 ≤ hc: ϕ(𝐱) = 0}` if `surface = true`
 
 where `lc::NTuple` and `hc::NTuple` denote the lower and upper corners of the bounding box.
 
@@ -170,14 +169,17 @@ integrate(f, Q) ≈ 2π / 4 # perimeter of quarter of a circle
 true
 
 ```
-
-
 """
 function quadgen(ϕ, lc::SVector{N,T}, hc::SVector{N,T}; order, kwargs...) where {N,T}
     if !haskey(kwargs, :config)
         quad1d = GaussLegendre(; order = order)
-        quad = TensorQuadrature(quad1d)
-        config = Config(; quad)
+        quadnd = TensorQuadrature(quad1d)
+        config = Config(;
+            find_zero = (f, a, b, tol) -> Roots.find_zero(f, (a, b), Roots.A42()),
+            quad = (f, a, b, tol) -> (quadnd(f, a, b), Inf),
+            min_vol = (tol) -> 1e-8,
+            min_qual = 0.0,
+        )
     else
         isnothing(order) || @warn "Ignoring `order` parameter since `config` is provided."
     end
@@ -188,7 +190,8 @@ function quadgen(ϕ, lc::SVector{N,T}, hc::SVector{N,T}; order, kwargs...) where
         # overload operations on it.
         return Quadrature([x], [one(T)])
     end
-    return integrate(f, ϕ, lc, hc; tol = nothing, config, kwargs...)
+    res = integrate(f, ϕ, lc, hc; tol = Inf, config, kwargs...)
+    return (; quad = res.val, res.logger)
 end
 
 function quadgen(ϕ, lc, hc, args...; kwargs...)

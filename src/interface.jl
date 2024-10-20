@@ -8,14 +8,14 @@ overload these to use a custom implementation.
 """
     bound(f, lc, hc) --> (lb, ub)
 
-Return a lower and upper bound for the function `f : U → ℝ` valid for all `x ∈
-U`.
+Return a lower and upper bound for the function `f : U → ℝ` valid for all `x ∈ U`.
 """
 function bound(f, lc, hc)
-    I = ntuple(i -> IntervalArithmetic.interval(lc[i], hc[i]), ndims(rec)) |> SVector
+    N = length(lc)
+    I = ntuple(i -> IntervalArithmetic.interval(lc[i], hc[i]), N) |> SVector
     return IntervalArithmetic.bounds.(f(I))
 end
-bound(f, rec) = bound(f, bounds(rec))
+bound(f, rec) = bound(f, bounds(rec)...)
 
 """
     gradient(f, x)
@@ -36,4 +36,4 @@ function bound_gradient(f, lc, hc)
     ∇f = x -> gradient(f, x)
     return bound(∇f, lc, hc)
 end
-bound_gradient(f, rec) = bound_gradient(f, bounds(rec))
+bound_gradient(f, rec::HyperRectangle) = bound_gradient(f, bounds(rec)...)
