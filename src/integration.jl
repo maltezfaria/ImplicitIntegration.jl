@@ -11,8 +11,8 @@ following fields:
     approximates the integral of `f` over `[a,b]` and `E` is the estimated error. `a` and `b`
     `Tuple`(s)/`SVector`(s) specifying the lower and upper bounds of the integration domain,
     and `tol` is the desired absolute tolerance.
-  - `min_vol`: a number used to specify the minimum volume of a box for it to be split
-    further. If the volume of a box is less than `min_vol`, the spatial recursion stops and a
+  - `min_vol`: a function with signature `(tol) --> Float64` used to specify the volume of
+    boxes below which the spatial subdivision stops.
     low-order method is used to approximate the integral.
   - `min_qual`: a number between `0` and `1` used to specify the minimum quality factor for a
     height direction to be considered valid for recursion. The quality factor for a direction
