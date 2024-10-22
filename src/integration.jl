@@ -23,7 +23,7 @@ following fields:
     find_zero::T1     = (f, a, b, tol) -> Roots.find_zero(f, (a, b), Roots.Brent(); xatol = tol)
     quad::T2          = (f, a, b, tol) -> HCubature.hcubature(f, a, b; atol = tol)
     min_vol::T3       = (tol) -> sqrt(eps(Float64))
-    min_qual::Float64 = 0.0
+    min_qual::Float64 = 0.1
 end
 
 """

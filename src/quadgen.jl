@@ -175,10 +175,8 @@ function quadgen(ϕ, lc::SVector{N,T}, hc::SVector{N,T}; order, kwargs...) where
         quad1d = GaussLegendre(; order = order)
         quadnd = TensorQuadrature(quad1d)
         config = Config(;
-            find_zero = (f, a, b, tol) -> Roots.find_zero(f, (a, b), Roots.A42()),
+            find_zero = (f, a, b, tol) -> Roots.find_zero(f, (a, b), Roots.Brent()),
             quad = (f, a, b, tol) -> (quadnd(f, a, b), Inf),
-            min_vol = (tol) -> 1e-8,
-            min_qual = 0.0,
         )
     else
         isnothing(order) || @warn "Ignoring `order` parameter since `config` is provided."
