@@ -134,10 +134,9 @@ function integrate(
 ) where {N,T}
     U = HyperRectangle(lc, hc)
     RET_TYPE = typeof(f(lc) * one(T) + f(hc) * one(T)) # a guess for the return type...
-    ϕ_ = SubFunction{N}(ϕ, SVector{0,Int}(), SVector{0,T}())
     s = surface ? 0 : -1
     logger = LogInfo(N)
-    val = _integrate(f, [ϕ_], [s], U, config, RET_TYPE, Val(surface), tol, logger)
+    val = _integrate(f, [ϕ], [s], U, config, RET_TYPE, Val(surface), tol, logger)
     return (; val, logger)
 end
 
@@ -174,7 +173,7 @@ function _integrate(
         return val
     end
     phi_vec = phi_vec[partial_cell_idxs]
-    s_vec   = s_vec[partial_cell_idxs]
+    s_vec = s_vec[partial_cell_idxs]
     # Finished prunning. If we did not return before this point, then the domain is neither
     # empty nor full. Next try to find a good direction to recurse on. We will choose the
     # direction with the largest gradient.
@@ -189,7 +188,7 @@ function _integrate(
     k = argmax(abs.(∇ϕ₁(xc)))
     # Now check if k is a "good" height direction for all the level-set functions
     s_vec_new = Int[]
-    R = restriction_type(eltype(phi_vec))
+    R = Any # type of restriction. TODO: infer the type?
     phi_vec_new = R[]
     for i in eachindex(phi_vec, s_vec)
         ∇ϕᵢ_bnds = bound_gradient(phi_vec[i], U)
@@ -200,13 +199,13 @@ function _integrate(
         qual = den == 0 ? 1.0 : lb * ub > 0 ? min(abs(lb), abs(ub)) / den : 0.0 # |∂ₖϕᵢ| / |∇ϕᵢ|
         if qual > config.min_qual
             # Restrict the level-set function to the box and push it to new list
-            ϕᵢᴸ, ϕᵢᵁ = restrict(phi_vec[i], U, k)
+            ϕᵢᴸ, ϕᵢᵁ = restrict(phi_vec[i], xl, xu, k)
             sign_∂ₖ = lb < 0 ? -1 : 1 # sign of ∂ₖϕᵢ
             sᵢᴸ, sᵢᵁ = sgn(sign_∂ₖ, s_vec[i], false, -1), sgn(sign_∂ₖ, s_vec[i], false, 1)
             push!(phi_vec_new, ϕᵢᴸ, ϕᵢᵁ)
             push!(s_vec_new, sᵢᴸ, sᵢᵁ)
         else
-            # Direction k now good for recursion on dimension, so immediately
+            # Direction k not good for recursion on dimension, so immediately
             # recurse on the box size
             _, dir = findmax(xu - xl)
             vol = S ? sum(xu - xl) : prod(xu - xl)
@@ -214,7 +213,7 @@ function _integrate(
             if vol < config.min_vol(tol) # stop splitting if the box is too small
                 logger.loworder += 1
                 @debug "Terminal case of recursion reached on $U, resorting to low-order method."
-                if !S && all(i -> ϕ_vec[i](xc) * s_vec[i] > 0, 1:length(ϕ_vec))
+                if !S && all(i -> phi_vec[i](xc) * s_vec[i] > 0, 1:length(phi_vec))
                     return f(xc) * prod(xu - xl)
                 else
                     return zero(RTYPE)

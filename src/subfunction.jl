@@ -47,9 +47,8 @@ function bound_gradient(f̃::SubFunction, Ũ::HyperRectangle)
     return multi_deleteat(bound_gradient(f̃.f, U), f̃.dims)
 end
 
-function restrict(f::SubFunction{M}, U::HyperRectangle{M}, k) where {M}
+function restrict(f::SubFunction, U::HyperRectangle{M}, k) where {M}
     lc, hc = bounds(U)
-    # idx = findfirst(i -> k > i, f.dims)
     idx = length(f.dims) + 1
     dims = insert(f.dims, idx, k)
     vals_lower = insert(f.vals, idx, lc[k])
