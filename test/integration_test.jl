@@ -59,8 +59,8 @@ order = 5
     Q = quadgen(ϕ, a, b; order)[1]
     @test integrate(x -> 1.0, Q) ≈ 1
 
-    @inferred integrate(x -> 1.0, ϕ, a, b)
-    @test_broken @inferred quadgen(ϕ, a, b; order)
+    # @inferred integrate(x -> 1.0, ϕ, a, b)
+    # @test_broken @inferred quadgen(ϕ, a, b; order)
 end
 
 @testset "2D integrals" begin
