@@ -91,6 +91,25 @@ Furthemore, `ϕ` is expected to return a real value.
 See also [`quadgen`](@ref) if you want to generate a quadrature instead of direcly computing
 the value of the integral.
 
+By default, `ImplicitIntegration` uses `ForwardDiff` to compute gradients and
+`IntervalArithmetic` to compute bounds, both of which are needed for the algorithm to work.
+While these work reasonably well in most cases, you may want to overload
+
+# Interface
+
+The following methods should work for your input function `ϕ`:
+
+  - `ϕ(x::SVector{N,<:Real}) -> T` to evaluate the level-set function at `x`.
+  - `ϕ(xI::SVector{N,<:Interval{<:Real}}) -> Interval{<:Real}` to evaluate a bound on `ϕ` on
+    the interval `xI`.
+  - `ϕ(xD::SVector{N,Dual{N,<:Real}}) -> Dual{N,<:Real}` to evaluate the level-set function
+    and its gradient at `x`.
+  - `ϕ(xDI::SVector{N,Dual{N,<:Interval{<:Real}}}) -> Dual{N,<:Interval{<:Real}}` to evaluate
+    a bound on `ϕ` and its gradient on the interval `xDI`.
+
+You may need to overload the methods above if `typeof(ϕ)` is not supported by `ForwardDiff`
+and/or `IntervalArithmetic`, or if you have a better/faster implementation.
+
 # Examples
 
 To compute the area of a quarter of a disk of radius 1.0:

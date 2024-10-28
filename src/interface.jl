@@ -33,8 +33,10 @@ Compute a lower and upper bound for the gradient of a function `f : U → ℝ` v
 for all `x ∈ U` in the sense that `bnds[i][1] ≤ ∂f/∂xᵢ(x) ≤ bnds[i][2]`.
 """
 function bound_gradient(f, lc, hc)
-    ∇f = x -> gradient(f, x)
-    return bound(∇f, lc, hc)
+    N = length(lc)
+    ∇f = x -> ForwardDiff.gradient(f, x)
+    I = ntuple(i -> IntervalArithmetic.interval(lc[i], hc[i]), N) |> SVector
+    return IntervalArithmetic.bounds.(∇f(I))
 end
 bound_gradient(f, rec::HyperRectangle) = bound_gradient(f, bounds(rec)...)
 
@@ -70,7 +72,7 @@ function heuristic_bound_gradient(f, lc, hc, n = 10)
     N = length(lc)
     lbnds = svector(i -> Inf, N)
     ubnds = svector(i -> -Inf, N)
-    iters = ntuple(i -> range(lc[i], hc[i], 10), N)
+    iters = ntuple(i -> range(lc[i], hc[i], n), N)
     for x in Iterators.product(iters...)
         v = gradient(f, SVector(x))
         lbnds = min.(lbnds, v)
