@@ -146,8 +146,8 @@ To compute the area of a quarter of a disk of radius 1.0:
 a, b = (0.0, 0.0), (1.5, 1.5)
 ϕ = (x) -> x[1]^2 + x[2]^2 - 1
 f = (x) -> 1.0
-Q = quadgen(ϕ, a, b; order = 20)
-integrate(f, Q) ≈ π / 4 # area of quarter of a disk
+out = quadgen(ϕ, a, b; order = 20)
+integrate(f, out.quad) ≈ π / 4 # area of quarter of a disk
 
 # output
 
@@ -161,7 +161,8 @@ To compute the perimeter of a quarter of a circle of radius 1.0:
 a, b = (0.0, 0.0), (1.5, 1.5)
 ϕ = (x) -> x[1]^2 + x[2]^2 - 1
 f = (x) -> 1.0
-Q = quadgen(ϕ, a, b; order = 20, surface = true)
+out = quadgen(ϕ, a, b; order = 20, surface = true)
+Q = out.quad
 integrate(f, Q) ≈ 2π / 4 # perimeter of quarter of a circle
 
 # output
