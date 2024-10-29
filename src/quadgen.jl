@@ -116,27 +116,23 @@ Base.zero(::Type{Quadrature{N,T}}) where {N,T} = Quadrature(SVector{N,T}[], T[])
 Base.zero(q::Quadrature) = zero(typeof(q))
 
 """
-    quadgen(ϕ, lc, hc; order, surface=false, config = nothing)
+    quadgen(ϕ, lc, hc; order, surface, kwargs...)
 
-Return a [`Quadrature`](@ref) to integrate a function over an implict domain
-defined by:
+Similar to [`integrate`](@ref), but generate a `Quadrature` over an implict domain defined
+by:
 
   - `Ω = {lc ≤ 𝐱 ≤ hc: ϕ(𝐱) < 0}` if `surface = false`
   - `Γ = {lc ≤ 𝐱 ≤ hc: ϕ(𝐱) = 0}` if `surface = true`
 
-where `lc::NTuple` and `hc::NTuple` denote the lower and upper corners of the bounding box.
+`order` specifies the degree of exactness of the quadrature rule; that is, the quadrature
+rule will integrate exactly polynomials of degree up to `order`, but not `order+1`. A
+`GaussLegendre` quadrature rule is used.
 
-The `order` parameter specifies the degree of exactness of the quadrature rule;
-that is, the quadrature rule will integrate exactly polynomials of degree
-up to `order`, but not `order+1`. A `GaussLegendre` quadrature rule is used.
+The function returns a named tuple `(quad, logger)` where `quad` contains the generated
+[`Quadrature`](@ref), and `logger` is a [`LogInfo`](@ref) object containing information
+about the integration process.
 
-For a finer control of the integration process, the user can pass a `config`
-object to customize the behavior of various aspects of the algorithm (see
-[`Config`](@ref) for more details). In such cases, the `order` parameter is
-ignored and `config.quad` is used for the integration.
-
-Note that `ϕ` must be callable with a single argument `𝐱` of type `SVector`.
-Furthemore, `ϕ` is expected to return a real value.
+See [`integrate`](@ref) for more information on the available `kwargs`.
 
 # Examples
 

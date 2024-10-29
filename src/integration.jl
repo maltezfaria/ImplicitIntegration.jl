@@ -74,12 +74,13 @@ Integrate the function `f` over an implict domain defined by:
   - `Ω = {lc ≤ 𝐱 ≤ hc: ϕ(𝐱) < 0}` if `surface = false`
   - `Γ = {lc ≤ 𝐱 ≤ hc: ϕ(𝐱) = 0}` if `surface = true`
 
-where `lc::NTuple` and `hc::NTuple` denote the lower and upper corners of the bounding box.
+where `lc` and `hc` denote the lower and upper corners of the bounding box.
 
 `tol` specifies the desired (absolute) tolerance for the approximation.
 
-The function returns a tuple `(val, logger)` where `val` is the approximated value, and
-`logger` is a [`LogInfo`](@ref) object containing information about the integration process.
+The function returns a named tuple `(val, logger)` where `val` is the approximated value,
+and `logger` is a [`LogInfo`](@ref) object containing information about the integration
+process.
 
 For a finer control over the integration process, pass a `config` object (see
 [`Config`](@ref)).
@@ -92,22 +93,16 @@ the value of the integral.
 
 By default, `ImplicitIntegration` uses `ForwardDiff` to compute gradients and
 `IntervalArithmetic` to compute bounds, both of which are needed for the algorithm to work.
-While these work reasonably well in most cases, you may want to overload
+While these work reasonably well in most cases, you may want to overload the following
+methods for the type of your input function `ϕ`:
 
-# Interface
-
-The following methods should work for your input function `ϕ`:
-
-  - `ϕ(x::SVector{N,<:Real}) -> T` to evaluate the level-set function at `x`.
+  - `ϕ(x::SVector{N,<:Real}) -> Real` to evaluate the level-set function at `x`.
   - `ϕ(xI::SVector{N,<:Interval{<:Real}}) -> Interval{<:Real}` to evaluate a bound on `ϕ` on
     the interval `xI`.
   - `ϕ(xD::SVector{N,Dual{N,<:Real}}) -> Dual{N,<:Real}` to evaluate the level-set function
     and its gradient at `x`.
-  - `ϕ(xDI::SVector{N,Dual{N,<:Interval{<:Real}}}) -> Dual{N,<:Interval{<:Real}}` to evaluate
-    a bound on `ϕ` and its gradient on the interval `xDI`.
-
-You may need to overload the methods above if `typeof(ϕ)` is not supported by `ForwardDiff`
-and/or `IntervalArithmetic`, or if you have a better/faster implementation.
+  - `ϕ(xDI::SVector{N,Dual{N,<:Interval{<:Real}}}) -> Dual{N,<:Interval{<:Real}}` to
+    evaluate a bound on `ϕ` and its gradient on the interval `xDI`.
 
 # Examples
 
