@@ -218,7 +218,7 @@ function _integrate(
         qual = den == 0 ? 1.0 : lb * ub > 0 ? min(abs(lb), abs(ub)) / den : 0.0 # |∂ₖϕᵢ| / |∇ϕᵢ|
         if qual > config.min_qual
             # Restrict the level-set function to the box and push it to new list
-            ϕᵢᴸ, ϕᵢᵁ = restrict(phi_vec[i], xl, xu, k)
+            ϕᵢᴸ, ϕᵢᵁ = restrict(phi_vec[i], k, xl[k]), restrict(phi_vec[i], k, xu[k])
             sign_∂ₖ = lb < 0 ? -1 : 1 # sign of ∂ₖϕᵢ
             sᵢᴸ, sᵢᵁ = sgn(sign_∂ₖ, s_vec[i], false, -1), sgn(sign_∂ₖ, s_vec[i], false, 1)
             push!(phi_vec_new, ϕᵢᴸ, ϕᵢᵁ)

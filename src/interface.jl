@@ -1,8 +1,8 @@
 #=
-The following methods constitute the interace required by any function that is
-passed to the `integrate` function. By default we use `ForwardDiff` to compute
-gradients and `IntervalArithmetic` to compute bounds. However, the user can
-overload these to use a custom implementation.
+The following methods constitute the interace required by any function that is passed to the
+`integrate` function. By default we use `ForwardDiff` to compute gradients and
+`IntervalArithmetic` to compute bounds. However, the user can overload these to use a custom
+implementation.
 =#
 
 """
@@ -41,23 +41,18 @@ end
 bound_gradient(f, rec::HyperRectangle) = bound_gradient(f, bounds(rec)...)
 
 """
-    restrict(f, lc, hc, k) --> (fl, fu)
+     restrict(f, k, v)
 
-Given a function `f : U → ℝ`, where `U = {lc ≤ x ≤ hc}`, return two functions `fl` and `fu`
-representing the restriction of `f` to upper and lower faces of `U` along the `k`-th
-dimension.
+Given a function `f : ℝᵈ → ℝ`, a value `v ∈ ℝ` and an integer `1 ≤ k ≤ d`, return the
+function `f̃ : ℝᵈ⁻¹ → ℝ` defined by restricting `f` to the value `v` along dimension `d`;
+i.e. `f̃(x) = f(x₁, ..., x_{k-1}, v, x_{k}, ..., x_d)`.
 
-Note that the returned functions are required to also implement the interface defined here.
+!!! note
+
+    The returned type should also implement the interface methods `gradient`, `bound`,
+    and `bound_gradient`.
 """
-function restrict(f, lc, hc, k)
-    M = length(lc)
-    val_lower = lc[k]
-    val_upper = hc[k]
-    fl = SubFunction{M - 1}(f, SVector(k), SVector(val_lower))
-    fu = SubFunction{M - 1}(f, SVector(k), SVector(val_upper))
-    return fl, fu
-end
-restrict(f, rec, k) = restrict(f, bounds(rec)..., k)
+restrict(f, k, v) = (x) -> f(insert(x, k, v))
 
 ## Heuristic "bounds" based on the function values at the corners of the rectangle
 

@@ -11,7 +11,6 @@ import StaticArrays: SVector, MVector, insert, deleteat, setindex, popfirst, pop
 include("utils.jl")
 include("hyperrectangle.jl")
 include("interface.jl")
-include("subfunction.jl")
 include("integration.jl")
 include("quadgen.jl")
 
