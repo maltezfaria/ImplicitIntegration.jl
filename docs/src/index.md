@@ -4,7 +4,7 @@ CurrentModule = ImplicitIntegration
 
 # ImplicitIntegration
 
-## Overview
+## [Overview](@id overview)
 
 This package provides an [`integrate`](@ref) function to approximate *volume* and *surface*
 integrals over implicitly defined domains in arbitrary dimensions. More specifically, it
@@ -98,6 +98,34 @@ current_figure()
 ```
 
 See the [`quadgen`](@ref) docstrings for more information on the available options.
+
+## Interface methods
+
+As alluded to in the [overview section](@ref overview), the underlying algorithm relies on bounding
+the level-set function ``\phi`` as well as its partial derivatives ``\partial_{x_i} \phi``
+in order to find an appropriate height function. By default, `ImplicitIntegration.jl` uses a
+combination of
+[IntervalArithmetic.jl](https://github.com/JuliaIntervals/IntervalArithmetic.jl) and
+[ForwardDiff.jl](https://github.com/JuliaDiff/ForwardDiff.jl) to perform these task. 
+
+There are at least two situations, however, where it may be beneficial (or even required) to
+overload the defaults:
+
+- `ForwardDiff` and/or `IntervalArithmetic` do not work with your function type
+- The bounds provided by the default methods are innacurate and/or slow
+
+In such cases, you can overload the following methods for your levelset `ϕ`:
+
+- `ϕ(x::SVector{N,<:Real})`: evaluate the function
+- `ϕ(I::SVector{N,<:Interval})`: bound the function
+- `ϕ(x::SVector{N,<:ForwardDiff.Dual{Tg,T<:Real,M}})`, `M <= N`: evaluate the Jacobian
+  vector product
+- `ϕ(x::SVector{N,<:ForwardDiff.Dual{Tg,T<:Interval,M}})`, `M <= N`: bound the Jacobian
+  vector product
+
+## Common issues
+
+Below is a list of known issues:
 
 ## Bibliography
 

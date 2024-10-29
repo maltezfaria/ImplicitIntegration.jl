@@ -1,6 +1,7 @@
 using ImplicitIntegration
 using Documenter
 using DocumenterCitations
+using GLMakie
 
 bib = CitationBibliography(joinpath(@__DIR__, "src", "refs.bib"); style = :numeric)
 
