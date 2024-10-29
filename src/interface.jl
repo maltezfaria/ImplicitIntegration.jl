@@ -77,6 +77,16 @@ function heuristic_bound_gradient(f, lc, hc, n = 10)
     return SVector(bnds)
 end
 
+"""
+    use_heuristic_bounds(F::Type, n = 10)
+
+Overload interface methods for type `F` to use a sample-based heuristic when bounding
+functions of type `F` and its gradient.
+
+The bounds are obtained by sampling the function (or its gradient) on an `n × ... × n` grid
+and taking the maximum/minimum of the attained values. This is obviously a heuristic, and
+may fail in practice.
+"""
 function use_heuristic_bounds(F::Type, n = 10)
     @eval begin
         function ImplicitIntegration.bound(f::$F, lc, hc)
