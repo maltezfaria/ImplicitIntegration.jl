@@ -8,7 +8,6 @@ import Roots
 import HCubature
 import StaticArrays: SVector, MVector, insert, deleteat, setindex, popfirst, pop, push
 
-include("utils.jl")
 include("hyperrectangle.jl")
 include("interface.jl")
 include("integration.jl")

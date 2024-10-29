@@ -65,15 +65,16 @@ end
 
 function heuristic_bound_gradient(f, lc, hc, n = 10)
     N = length(lc)
-    lbnds = svector(i -> Inf, N)
-    ubnds = svector(i -> -Inf, N)
+    lbnds = ntuple(i -> Inf, N) |> SVector
+    ubnds = ntuple(i -> -Inf, N) |> SVector
     iters = ntuple(i -> range(lc[i], hc[i], n), N)
     for x in Iterators.product(iters...)
         v = gradient(f, SVector(x))
         lbnds = min.(lbnds, v)
         ubnds = max.(ubnds, v)
     end
-    return svector(i -> SVector(lbnds[i], ubnds[i]), N)
+    bnds = ntuple(i -> SVector(lbnds[i], ubnds[i]), N)
+    return SVector(bnds)
 end
 
 function use_heuristic_bounds(F::Type, n = 10)

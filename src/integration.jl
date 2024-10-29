@@ -19,7 +19,6 @@ following fields:
     `k` is given by `|∂ₖϕ| / |∇ϕ|`.
 """
 @kwdef struct Config{T1,T2,T3}
-    # find_zero::T1     = (f, a, b, tol) -> Roots.find_zero(f, (a,b), Roots.Brent())
     find_zero::T1     = (f, a, b, tol) -> Roots.find_zero(f, (a, b), Roots.Brent(); xatol = tol)
     quad::T2          = (f, a, b, tol) -> HCubature.hcubature(f, a, b; atol = tol)
     min_vol::T3       = (tol) -> sqrt(eps(Float64))
@@ -56,7 +55,7 @@ function LogInfo(dim::Integer)
 end
 
 ## overload the display method to better visualize the info
-function Base.show(io::IO, ::MIME"text/plain", info::LogInfo)
+function Base.show(io::IO, info::LogInfo)
     println(io, "LogInfo:")
     println(io, "|- Subdivisions:")
     for (i, s) in enumerate(info.subdivisions)
