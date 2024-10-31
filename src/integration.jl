@@ -104,6 +104,9 @@ methods for the type of your input function `ϕ`:
   - `ϕ(xDI::SVector{N,Dual{N,<:Interval{<:Real}}}) -> Dual{N,<:Interval{<:Real}}` to
     evaluate a bound on `ϕ` and its gradient on the interval `xDI`.
 
+You may need to overload the methods above if `typeof(ϕ)` is not supported by `ForwardDiff`
+and/or `IntervalArithmetic`, or if you have a better/faster implementation; see the main docs.
+
 # Examples
 
 To compute the area of a quarter of a disk of radius 1.0:

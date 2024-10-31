@@ -122,6 +122,22 @@ In such cases, you can overload the following methods for your levelset `ϕ`:
   vector product
 - `ϕ(x::SVector{N,<:ForwardDiff.Dual{Tg,T<:Interval,M}})`, `M <= N`: bound the Jacobian
   vector product
+  
+For instance, here's how to implement the Jacobian vector product overload using a
+user-provided `ϕ_and_∇ϕ(x)` function:
+```
+function ϕ(x::SVector{S,<:ForwardDiff.Dual{Tg,T,Npartials}}) where {S, Tg, T, Npartials}
+    ϕx, ∇ϕx = ϕ_and_∇ϕ(ForwardDiff.value.(x))
+    partials = ntuple(ipart -> sum(∇ϕx .* ForwardDiff.partials.(x,ipart)), Npartials)
+    ForwardDiff.Dual{Tg}(ϕx, partials...)
+end
+```
+This is enough, provided `ϕ_and_∇ϕ` supports interval inputs. If it doesn't, just add
+a `ϕ_and_∇ϕ(x::SVector{<:Interval})` method that computes the bound and returns it as
+an `Interval`. Note that ForwardDiff and IntervalArithmetic are both composable: if
+`ϕ` is the composition of two functions `ϕ1` and `ϕ2`, you can use custom overloads 
+for either or both of the two functions.
+
 
 ## Common issues
 
