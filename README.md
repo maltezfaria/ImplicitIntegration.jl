@@ -25,8 +25,8 @@ and **surface integrals** of the form
     \int_{\phi(\boldsymbol{x}) = 0 \ \cap \ U}  f(\boldsymbol{x}) \, \mathrm{dS},
 ```
 
-where ``\phi : \mathbb{R}^d \to \mathbb{R}`` is a level-set function implicitly defining the
-surface, and ``U = [a_1, b_1] \times \ldots \times [a_d, b_d]`` is a bounding
+where $\phi : \mathbb{R}^d \to \mathbb{R}$ is a level-set function implicitly defining the
+surface, and $U = [a_1, b_1] \times \ldots \times [a_d, b_d]$ is a bounding
 box.
 
 Key features include:
