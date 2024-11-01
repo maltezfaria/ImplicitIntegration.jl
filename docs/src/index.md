@@ -138,11 +138,6 @@ an `Interval`. Note that ForwardDiff and IntervalArithmetic are both composable:
 `ϕ` is the composition of two functions `ϕ1` and `ϕ2`, you can use custom overloads 
 for either or both of the two functions.
 
-
-## Common issues
-
-Below is a list of known issues:
-
 ## Bibliography
 
 ```@bibliography
