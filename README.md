@@ -13,6 +13,22 @@ described in
 > Saye, R. I. (2015). High-order quadrature methods for implicitly defined surfaces and
 > volumes in hyperrectangles. SIAM Journal on Scientific Computing, 37(2), A993-A1019.
 
+which allows for the computation of **volume integrals** of the form
+
+```math
+    \int_{\phi(\boldsymbol{x}) < 0 \ \cap \ U}  f(\boldsymbol{x}) \, \mathrm{dV},
+```
+
+and **surface integrals** of the form
+
+```math
+    \int_{\phi(\boldsymbol{x}) = 0 \ \cap \ U}  f(\boldsymbol{x}) \, \mathrm{dS},
+```
+
+where ``\phi : \mathbb{R}^d \to \mathbb{R}`` is a level-set function implicitly defining the
+surface, and ``U = [a_1, b_1] \times \ldots \times [a_d, b_d]`` is a bounding
+box.
+
 Key features include:
 
 - Implicit volume and surface integrals in arbitrary dimensions
@@ -22,7 +38,7 @@ Key features include:
 
 ## Quick Start
 
-To install:
+To install, open the Julia REPL and run:
 
 ```julia
 using Pkg
