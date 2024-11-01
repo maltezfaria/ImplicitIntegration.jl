@@ -15,6 +15,7 @@ DocMeta.setdocmeta!(
 makedocs(;
     modules = [ImplicitIntegration],
     sitename = "ImplicitIntegration.jl",
+    authors = "Luiz M. Faria and Antoine Levitt",
     format = Documenter.HTML(;
         canonical = "https://maltezfaria.github.io/ImplicitIntegration.jl",
         edit_link = "main",
