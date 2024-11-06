@@ -176,3 +176,25 @@ end
     @test res.val ≈ (4 / 3) * π / 8
     @test sum(res.logger.subdivisions) > 4
 end
+
+@testset "Issue 16" begin
+    function dos_integer_1d_exact(E::Real, t = oneunit(E))
+        x = abs(E / 2t)
+        if x <= 1
+            1 / sqrt(1 - x^2) / (pi * 2t)
+        else
+            zero(inv(oneunit(t)))
+        end
+    end
+    ω = 0.1
+    ref = dos_integer_1d_exact(ω, 0.5)
+    result = integrate(
+        x -> 1 / abs(2π * sinpi(2x[1])),
+        x -> cospi(2x[1]) - ω,
+        (0.0,),
+        (1.0,);
+        surface = true,
+        tol = 1e-2,
+    )
+    @test result.val ≈ ref
+end

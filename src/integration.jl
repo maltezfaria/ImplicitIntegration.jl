@@ -194,7 +194,12 @@ function _integrate(
     # empty nor full. Next try to find a good direction to recurse on. We will choose the
     # direction with the largest gradient.
     if DIM == 1 # base case
-        f̃ = _integrand_eval(f, phi_vec, s_vec, U, 1, config, RTYPE, tol, logger)
+        f̃ = if S
+            @assert length(phi_vec) == 1
+            _surface_integrand_eval(f, phi_vec[1], U, 1, config, RTYPE, tol, logger)
+        else
+            _integrand_eval(f, phi_vec, s_vec, U, 1, config, RTYPE, tol, logger)
+        end
         x̃ = SVector{0,T}() # zero-argument vector to evaluate `f̃` (a const.)
         @debug "Reached 1D base case, evaluating integrand at $x̃"
         return f̃(x̃)
@@ -259,7 +264,7 @@ function _integrate(
     Ũ = remove_dimension(U, k)
     if S
         @assert length(phi_vec) == 1
-        f̃ = _surface_integrand_eval(f, phi_vec[1], U, k, config, RTYPE, tol)
+        f̃ = _surface_integrand_eval(f, phi_vec[1], U, k, config, RTYPE, tol, logger)
         return _integrate(
             f̃,
             phi_vec_new,
@@ -357,23 +362,36 @@ end
 function _surface_integrand_eval(
     f,
     phi,
-    U::HyperRectangle{N},
+    U::HyperRectangle{N,T},
     k::Int,
     config,
     ::Type{RET_TYPE},
     tol,
-) where {N,RET_TYPE}
+    logger,
+) where {N,T,RET_TYPE}
     xl, xu = bounds(U)
     a, b = xl[k], xu[k]
     f̃ = (x̃) -> begin
         g = (t) -> phi(insert(x̃, k, t))
-        if g(a) * g(b) > 0
-            return zero(RET_TYPE)
-        else
-            root = config.find_zero(g, a, b, tol)
-            x = insert(x̃, k, root)
-            ∇ϕ = gradient(phi, x)
-            return f(x) * norm(∇ϕ) * inv(abs(∇ϕ[k]))
+        if N == 1
+            # corner case where we have a "surface" integral in 1D. Arises only when calling
+            # `integrate` with `surface=true` on one-dimensional level-set functions.
+            roots = T[]
+            _find_zeros!(roots, phi, U, config, tol, logger)
+            sum(roots) do root
+                x = insert(x̃, k, root)
+                ∇ϕ = gradient(phi, x)
+                return f(x) * norm(∇ϕ) * inv(abs(∇ϕ[k]))
+            end
+        else # guaranteed to have at most one zero
+            if g(a) * g(b) > 0
+                return zero(RET_TYPE)
+            else
+                root = config.find_zero(g, a, b, tol)
+                x = insert(x̃, k, root)
+                ∇ϕ = gradient(phi, x)
+                return f(x) * norm(∇ϕ) * inv(abs(∇ϕ[k]))
+            end
         end
     end
     return f̃
