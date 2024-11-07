@@ -80,3 +80,11 @@ scatter(out.quad.coords; markersize = 5, color = :red)
 
 For detailed usage, examples, and advanced options, please refer to the [official
 documentation](https://maltezfaria.github.io/ImplicitIntegration.jl/dev/).
+
+## Related packages
+
+- [Algoim](https://algoim.github.io): C++ library by the author of the original paper, Robert I. Saye
+- [Algoim.jl](https://github.com/ericneiva/Algoim.jl): a Julia wrapper around the C++
+  library above
+- [QuadratureOnImplicitRegions.jl](https://github.com/HMegh/QuadratureOnImplicitRegions.jl):
+  another implementation of Saye's algorithm in Julia
