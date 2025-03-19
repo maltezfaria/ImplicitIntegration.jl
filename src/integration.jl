@@ -5,7 +5,7 @@ The `Config` struct represents the configuration for implicit integration, passe
 [`integrate`](@ref) function to customize the behavior of the algorithm. It contains the
 following fields:
 
-  - `find_zero` a function with signature `(f, a, b, tol) --> x` such that `f(x) ≈ 0`, `a ≤ x ≤ b`. The tolerance `tol` is used to specify the absolule tolerance of the zero
+  - `find_zero` a function with signature `(f, a, b, tol) --> x` such that `f(x) ≈ 0`, `a ≤ x ≤ b`. The tolerance `tol` is used to specify the absolute tolerance of the zero
     approximation (e.g. `xatol` in `Roots`).
   - `quad`: a function with signature `quad(f, a, b, tol) --> (I,E)` such that `I`
     approximates the integral of `f` over `[a,b]` and `E` is the estimated error. `a` and `b`
@@ -40,18 +40,20 @@ mutable struct LogInfo
     subdivisions::Vector{Int}
     loworder::Int
     fullcells::Int
+    tree::TreeNode
 end
 
 """
-    LogInfo(d::Integer)
+    LogInfo(U::HyperRectangle)
 
-Initialize a `LogInfo` object for integrating over `ℝᵈ`.
+Initialize a `LogInfo` object for integrating over `U`.
 """
-function LogInfo(dim::Integer)
-    subdivs = zeros(Int, dim)
+function LogInfo(U::HyperRectangle{N}) where {N}
+    subdivs = zeros(Int, N)
     loworder = 0
     fullcells = 0
-    return LogInfo(subdivs, loworder, fullcells)
+    tree = TreeNode(U)
+    return LogInfo(subdivs, loworder, fullcells, tree)
 end
 
 ## overload the display method to better visualize the info
@@ -66,10 +68,10 @@ function Base.show(io::IO, info::LogInfo)
 end
 
 """
-    integrate(f, ϕ, lc, hc; tol=1e-8, surface=false, log = false, config = Config()) -->
+    integrate(f, ϕ, lc, hc; tol=1e-8, surface=false, config = Config(), loginfo = false) -->
     (val, logger)
 
-Integrate the function `f` over an implict domain defined by:
+Integrate the function `f` over an implicit domain defined by:
 
   - `Ω = {lc ≤ 𝐱 ≤ hc: ϕ(𝐱) < 0}` if `surface = false`
   - `Γ = {lc ≤ 𝐱 ≤ hc: ϕ(𝐱) = 0}` if `surface = true`
@@ -80,7 +82,7 @@ where `lc` and `hc` denote the lower and upper corners of the bounding box.
 
 The function returns a named tuple `(val, logger)` where `val` is the approximated value,
 and `logger` is a [`LogInfo`](@ref) object containing information about the integration
-process.
+process if `loginfo = true`; otherwise, `logger` is `nothing`.
 
 For a finer control over the integration process, pass a `config` object (see
 [`Config`](@ref)).
@@ -88,7 +90,7 @@ For a finer control over the integration process, pass a `config` object (see
 Note that both `f` and `ϕ` must be callable with a single argument `𝐱` of type `SVector`.
 Furthemore, `ϕ` is expected to return a real value.
 
-See also [`quadgen`](@ref) if you want to generate a quadrature instead of direcly computing
+See also [`quadgen`](@ref) if you want to generate a quadrature instead of directly computing
 the value of the integral.
 
 By default, `ImplicitIntegration` uses `ForwardDiff` to compute gradients and
@@ -147,12 +149,14 @@ function integrate(
     surface = false,
     tol = 1e-8,
     config = Config(),
+    loginfo = false,
 ) where {N,T}
     U = HyperRectangle(lc, hc)
+    logger = loginfo ? LogInfo(U) : nothing
+    tree = loginfo ? logger.tree : nothing
     RET_TYPE = typeof(f(lc) * one(T) + f(hc) * one(T)) # a guess for the return type...
     s = surface ? 0 : -1
-    logger = LogInfo(N)
-    val = _integrate(f, [ϕ], [s], U, config, RET_TYPE, Val(surface), tol, logger)
+    val = _integrate(f, [ϕ], [s], U, config, RET_TYPE, Val(surface), tol, logger, tree)
     return (; val, logger)
 end
 
@@ -174,9 +178,10 @@ function _integrate(
     ::Val{S},
     tol,
     logger,
+    tree,
 ) where {DIM,T,RTYPE,S}
     xl, xu = bounds(U)
-    # Start by prunning phi_vec...
+    # Start by pruning phi_vec...
     partial_cell_idxs = Int[]
     for i in eachindex(phi_vec, s_vec)
         c = cell_type(phi_vec[i], s_vec[i], U, S)
@@ -184,21 +189,21 @@ function _integrate(
         c == partial_cell && push!(partial_cell_idxs, i)
     end
     if length(partial_cell_idxs) == 0 # full cell
-        logger.fullcells += 1
+        isnothing(logger) || (logger.fullcells += 1)
         val, _ = config.quad(f, xl, xu, tol)
         return val
     end
     phi_vec = phi_vec[partial_cell_idxs]
     s_vec = s_vec[partial_cell_idxs]
-    # Finished prunning. If we did not return before this point, then the domain is neither
+    # Finished pruning. If we did not return before this point, then the domain is neither
     # empty nor full. Next try to find a good direction to recurse on. We will choose the
     # direction with the largest gradient.
     if DIM == 1 # base case
         f̃ = if S
             @assert length(phi_vec) == 1
-            _surface_integrand_eval(f, phi_vec[1], U, 1, config, RTYPE, tol, logger)
+            _surface_integrand_eval(f, phi_vec[1], U, 1, config, RTYPE, tol, logger, tree)
         else
-            _integrand_eval(f, phi_vec, s_vec, U, 1, config, RTYPE, tol, logger)
+            _integrand_eval(f, phi_vec, s_vec, U, 1, config, RTYPE, tol, logger, tree)
         end
         x̃ = SVector{0,T}() # zero-argument vector to evaluate `f̃` (a const.)
         @debug "Reached 1D base case, evaluating integrand at $x̃"
@@ -232,7 +237,7 @@ function _integrate(
             vol = S ? sum(xu - xl) : prod(xu - xl)
             # split along largest direction
             if vol < config.min_vol(tol) # stop splitting if the box is too small
-                logger.loworder += 1
+                isnothing(logger) || (logger.loworder += 1)
                 @debug "Terminal case of recursion reached on $U, resorting to low-order method."
                 if !S && all(i -> phi_vec[i](xc) * s_vec[i] > 0, 1:length(phi_vec))
                     return f(xc) * prod(xu - xl)
@@ -241,10 +246,13 @@ function _integrate(
                 end
             else # split the box
                 @debug "Splitting $U along $dir"
-                Uₗ, Uᵣ = split(U, dir)
-                logger.subdivisions[DIM] += 1
-                tol /= 2 # FIXME: halving the tolerance is a way too much in practice...
-                return _integrate(
+                Uₗ, Uᵣ     = split(U, dir)
+                tree_left  = isnothing(tree) ? nothing : TreeNode(Uₗ)
+                tree_right = isnothing(tree) ? nothing : TreeNode(Uᵣ)
+                isnothing(tree) || (push!(tree.children, (tree_left, 0), (tree_right, 0)))
+                isnothing(logger) || (logger.subdivisions[DIM] += 1)
+                tol /= 2 # FIXME: halving the tolerance is way too much in practice...
+                Iₗ = _integrate(
                     f,
                     phi_vec,
                     s_vec,
@@ -254,7 +262,21 @@ function _integrate(
                     Val(S),
                     tol,
                     logger,
-                ) + _integrate(f, phi_vec, s_vec, Uᵣ, config, RTYPE, Val(S), tol, logger)
+                    tree_left,
+                )
+                Iᵣ = _integrate(
+                    f,
+                    phi_vec,
+                    s_vec,
+                    Uᵣ,
+                    config,
+                    RTYPE,
+                    Val(S),
+                    tol,
+                    logger,
+                    tree_right,
+                )
+                return Iₗ + Iᵣ
             end
         end
     end
@@ -262,9 +284,11 @@ function _integrate(
     # on dimension until 1D integrals are reached
     @debug "Recursing down on $k for $U"
     Ũ = remove_dimension(U, k)
+    subtree = isnothing(tree) ? nothing : TreeNode(Ũ)
+    isnothing(tree) || (push!(tree.children, (subtree, k)))
     if S
         @assert length(phi_vec) == 1
-        f̃ = _surface_integrand_eval(f, phi_vec[1], U, k, config, RTYPE, tol, logger)
+        f̃ = _surface_integrand_eval(f, phi_vec[1], U, k, config, RTYPE, tol, logger, tree)
         return _integrate(
             f̃,
             phi_vec_new,
@@ -275,9 +299,10 @@ function _integrate(
             Val(false),
             tol,
             logger,
+            subtree,
         )
     else
-        f̃ = _integrand_eval(f, phi_vec, s_vec, U, k, config, RTYPE, tol, logger)
+        f̃ = _integrand_eval(f, phi_vec, s_vec, U, k, config, RTYPE, tol, logger, tree)
         return _integrate(
             f̃,
             phi_vec_new,
@@ -288,6 +313,7 @@ function _integrate(
             Val(false),
             tol,
             logger,
+            subtree,
         )
     end
 end
@@ -310,6 +336,7 @@ function _integrand_eval(
     ::Type{RET_TYPE},
     tol,
     logger,
+    tree,
 ) where {N,RET_TYPE}
     xl, xu = bounds(U)
     a, b = xl[k], xu[k]
@@ -321,7 +348,7 @@ function _integrand_eval(
                 # possible several zeros. Use internal `find_zeros` method which
                 # works on the function `ϕᵢ` directly so that it can tap into
                 # the `bound` and `bound_gradient` methods.
-                _find_zeros!(bnds, ϕᵢ, U, config, tol, logger)
+                _find_zeros!(bnds, ϕᵢ, U, config, tol, logger, tree)
             else
                 # we know that g is monotonic since it corresponds to a
                 # height-direction, so at most a single root exists.
@@ -368,6 +395,7 @@ function _surface_integrand_eval(
     ::Type{RET_TYPE},
     tol,
     logger,
+    tree,
 ) where {N,T,RET_TYPE}
     xl, xu = bounds(U)
     a, b = xl[k], xu[k]
@@ -377,7 +405,7 @@ function _surface_integrand_eval(
             # corner case where we have a "surface" integral in 1D. Arises only when calling
             # `integrate` with `surface=true` on one-dimensional level-set functions.
             roots = T[]
-            _find_zeros!(roots, phi, U, config, tol, logger)
+            _find_zeros!(roots, phi, U, config, tol, logger, tree)
             sum(roots) do root
                 x = insert(x̃, k, root)
                 ∇ϕ = gradient(phi, x)
@@ -451,7 +479,7 @@ end
 Return all zeros of the function `f` in the `Segment` `U`. `f` should be callable as
 `f(x::SVector{1})`.
 """
-function _find_zeros!(roots, ϕ, U::Segment, config, tol, logger)
+function _find_zeros!(roots, ϕ, U::Segment, config, tol, logger, tree)
     xl, xu = bounds(U)
     if norm(xu - xl) < config.min_vol(tol)
         # splitting has led to very small boxes, likely due to e.g. degenerate
@@ -482,10 +510,13 @@ function _find_zeros!(roots, ϕ, U::Segment, config, tol, logger)
                 return roots
             end
         else # can't prove monotonicity nor lack of zeros, so split
-            U1, U2 = split(U, 1)
+            U1, U2     = split(U, 1)
+            tree_left  = isnothing(tree) ? nothing : TreeNode(U1)
+            tree_right = isnothing(tree) ? nothing : TreeNode(U2)
+            isnothing(tree) || (push!(tree.children, (tree_left, 0), (tree_right, 0)))
             isnothing(logger) || (logger.subdivisions[1] += 1) # one-dimensional subdivision
-            _find_zeros!(roots, ϕ, U1, config, tol, logger)
-            _find_zeros!(roots, ϕ, U2, config, tol, logger)
+            _find_zeros!(roots, ϕ, U1, config, tol, logger, tree)
+            _find_zeros!(roots, ϕ, U2, config, tol, logger, tree)
             return roots
         end
     end

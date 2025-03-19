@@ -172,7 +172,7 @@ end
     # TODO: improve testing of logger
     a, b = (0.0, 0.0, 0.0), (2.0, 2.0, 2.0)
     ϕ = (x) -> x[1]^2 + x[2]^2 + x[3]^2 - 1
-    res = integrate(x -> 1.0, ϕ, a, b .+ 0.1)
+    res = integrate(x -> 1.0, ϕ, a, b .+ 0.1; loginfo = true)
     @test res.val ≈ (4 / 3) * π / 8
     @test sum(res.logger.subdivisions) > 4
 end
