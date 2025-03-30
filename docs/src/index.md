@@ -51,7 +51,7 @@ using ImplicitIntegration, StaticArrays
 f = (x) -> 1
 lc = (-1.1, -1.1, -1.1)
 hc = (1.1, 1.1, 1.1)
-int_volume  = integrate(f, ϕ, lc, hc)
+int_volume  = integrate(f, ϕ, lc, hc; loginfo = true)
 nothing # hide
 ```
 
@@ -65,13 +65,27 @@ println("Error of volume:  $(int_volume.val - 4π/3)")
 println(int_volume.logger)
 ```
 
-To compute a surface integral isntead, simply set the `surface` keyword argument to `true`:
+To compute a surface integral instead, simply set the `surface` keyword argument to `true`:
 
 ```@example overview-example
-int_surface = integrate(f, ϕ, lc, hc; surface = true)
+int_surface = integrate(f, ϕ, lc, hc; surface = true, loginfo = true)
 println("Computed surface: $(int_surface.val)")
 println("Error of surface: $(int_surface.val - 4π)")
 println(int_surface.logger)
+```
+
+It is also possible to visualize the computed tree structure by loading one of Makie's
+backends and calling the `plot` method on the `logger` object (mostly useful for debugging
+purposes and in 2D):
+
+```@example overview-example
+using GLMakie
+# plot the surface
+vv = [ϕ(SVector(x, y, z)) for x in lc[1]:0.1:hc[1], y in lc[2]:0.1:hc[1], z in lc[3]:0.1:hc[1]]
+volume((lc[1], hc[1]), (lc[2], hc[2]), (lc[3], hc[3]), vv, algorithm = :iso, transparency = true, alpha = 0.4, isovalue = 0)
+# then the boxes
+plot!(int_surface.logger)
+current_figure() # hide
 ```
 
 ### `quadgen`
@@ -89,12 +103,12 @@ p1 = SVector(-1.0, 0, 0)
 p2 = SVector(1.0, 0, 0)
 b = 1.1
 ϕ = x -> (x - p1) ⋅ (x - p1) * (x - p2) ⋅ (x - p2) - b^2
-out = quadgen(ϕ, (-2, -2, -2), (2, 2, 2); order = 5, surface = true)
+quad, logger = quadgen(ϕ, (-2, -2, -2), (2, 2, 2); order = 5, surface = true, loginfo=true)
 xx = yy = zz = range(-1.5, 1.5, length = 200)
 vv = ϕ.(SVector.(Iterators.product(xx, yy, zz)))
-volume(xx, yy, zz, vv, algorithm = :iso, transparency = true, alpha = 0.4, isovalue = 0)
-scatter!(out.quad.coords, markersize = 2, color = :red)
-current_figure()
+volume((xx[1],xx[end]), (yy[1],yy[end]), (zz[1],zz[end]), vv, algorithm = :iso, transparency = true, alpha = 0.4, isovalue = 0)
+scatter!(quad.coords, markersize = 2, color = :red)
+current_figure() # hide
 ```
 
 See the [`quadgen`](@ref) docstrings for more information on the available options.
@@ -125,7 +139,7 @@ In such cases, you can overload the following methods for your levelset `ϕ`:
   
 For instance, here's how to implement the Jacobian vector product overload using a
 user-provided `ϕ_and_∇ϕ(x)` function:
-```
+```julia
 function ϕ(x::SVector{S,<:ForwardDiff.Dual{Tg,T,Npartials}}) where {S, Tg, T, Npartials}
     ϕx, ∇ϕx = ϕ_and_∇ϕ(ForwardDiff.value.(x))
     partials = ntuple(ipart -> sum(∇ϕx .* ForwardDiff.partials.(x,ipart)), Npartials)
