@@ -1,6 +1,6 @@
 name = "ImplicitIntegration"
 uuid = "bc256489-3a69-4a66-afc4-127cc87e6182"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Luiz M. Faria and Antoine Levitt"]
 
 [deps]
