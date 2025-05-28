@@ -238,7 +238,7 @@ function _integrate(
             # split along largest direction
             if vol < config.min_vol(tol) # stop splitting if the box is too small
                 isnothing(logger) || (logger.loworder += 1)
-                @debug "Terminal case of recursion reached on $U, resorting to low-order method."
+                @warn "Terminal case of recursion reached on $U, resorting to low-order method."
                 if !S && all(i -> phi_vec[i](xc) * s_vec[i] > 0, 1:length(phi_vec))
                     return f(xc) * prod(xu - xl)
                 else
@@ -358,6 +358,10 @@ function _integrand_eval(
             end
         end
         sort!(bnds)
+        # HACK: keep only the unique elements in bnds up to ≈ 1e-8 relative tolerance.
+        # Avoids cases where we have two zeros that are very close to each other, usually
+        # coming from a degenerate root (e.g. x^2 at x = 0 with numerical noise).
+        unique!(x -> round(x; sigdigits = 8), bnds)
         # compute the integral
         acc = zero(RET_TYPE)
         for i in 1:(length(bnds)-1) # loop over each segment
