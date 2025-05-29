@@ -18,12 +18,13 @@ end
 bound(f, rec) = bound(f, bounds(rec)...)
 
 """
-    gradient(f, x)
+    gradient(f)
 
-Compute the gradient of a function `f : ℝᵈ → ℝ` at point `x ∈ ℝᵈ`.
+Compute the gradient function `f : ℝᵈ → ℝ`. The returned function takes a vector `x ∈ ℝᵈ`
+and returns the gradient `∇f(x) ∈ ℝᵈ`.
 """
-function gradient(f, x)
-    return ForwardDiff.gradient(f, x)
+function gradient(f)
+    return x -> ForwardDiff.gradient(f, x)
 end
 
 """
@@ -33,10 +34,8 @@ Compute a lower and upper bound for the gradient of a function `f : U → ℝ` v
 for all `x ∈ U` in the sense that `bnds[i][1] ≤ ∂f/∂xᵢ(x) ≤ bnds[i][2]`.
 """
 function bound_gradient(f, lc, hc)
-    N = length(lc)
-    ∇f = x -> ForwardDiff.gradient(f, x)
-    I = ntuple(i -> IntervalArithmetic.interval(lc[i], hc[i]), N) |> SVector
-    return IntervalArithmetic.bounds.(∇f(I))
+    ∇f = gradient(f)
+    return bound(∇f, lc, hc)
 end
 bound_gradient(f, rec::HyperRectangle) = bound_gradient(f, bounds(rec)...)
 

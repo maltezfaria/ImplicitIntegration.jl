@@ -156,7 +156,9 @@ function integrate(
     tree = loginfo ? logger.tree : nothing
     RET_TYPE = typeof(f(lc) * one(T) + f(hc) * one(T)) # a guess for the return type...
     s = surface ? 0 : -1
-    val = _integrate(f, [ϕ], [s], U, config, RET_TYPE, Val(surface), tol, logger, tree)
+    ∇ϕ = gradient(ϕ)
+    val =
+        _integrate(f, [ϕ], [∇ϕ], [s], U, config, RET_TYPE, Val(surface), tol, logger, tree)
     return (; val, logger)
 end
 
@@ -171,6 +173,7 @@ end
 function _integrate(
     f,
     phi_vec,
+    grad_phi_vec,
     s_vec,
     U::HyperRectangle{DIM,T},
     config,
@@ -201,23 +204,46 @@ function _integrate(
     if DIM == 1 # base case
         f̃ = if S
             @assert length(phi_vec) == 1
-            _surface_integrand_eval(f, phi_vec[1], U, 1, config, RTYPE, tol, logger, tree)
+            _surface_integrand_eval(
+                f,
+                phi_vec[1],
+                grad_phi_vec[1],
+                U,
+                1,
+                config,
+                RTYPE,
+                tol,
+                logger,
+                tree,
+            )
         else
-            _integrand_eval(f, phi_vec, s_vec, U, 1, config, RTYPE, tol, logger, tree)
+            _integrand_eval(
+                f,
+                phi_vec,
+                grad_phi_vec,
+                s_vec,
+                U,
+                1,
+                config,
+                RTYPE,
+                tol,
+                logger,
+                tree,
+            )
         end
         x̃ = SVector{0,T}() # zero-argument vector to evaluate `f̃` (a const.)
         @debug "Reached 1D base case, evaluating integrand at $x̃"
         return f̃(x̃)
     end
     xc = (xl + xu) / 2
-    ∇ϕ₁ = (x) -> gradient(phi_vec[1], x)
+    ∇ϕ₁ = grad_phi_vec[1]
     k = argmax(abs.(∇ϕ₁(xc)))
     # Now check if k is a "good" height direction for all the level-set functions
     s_vec_new = Int[]
     R = Any # type of restriction. TODO: infer the type?
     phi_vec_new = R[]
     for i in eachindex(phi_vec, s_vec)
-        ∇ϕᵢ_bnds = bound_gradient(phi_vec[i], U)
+        ∇ϕᵢ_bnds = bound(grad_phi_vec[i], U)
         den = sum(∇ϕᵢ_bnds) do (lb, ub)
             return max(abs(lb), abs(ub))^2
         end |> sqrt # max over U of |∇ϕᵢ|
@@ -255,6 +281,7 @@ function _integrate(
                 Iₗ = _integrate(
                     f,
                     phi_vec,
+                    grad_phi_vec,
                     s_vec,
                     Uₗ,
                     config,
@@ -267,6 +294,7 @@ function _integrate(
                 Iᵣ = _integrate(
                     f,
                     phi_vec,
+                    grad_phi_vec,
                     s_vec,
                     Uᵣ,
                     config,
@@ -288,10 +316,22 @@ function _integrate(
     isnothing(tree) || (push!(tree.children, (subtree, k)))
     if S
         @assert length(phi_vec) == 1
-        f̃ = _surface_integrand_eval(f, phi_vec[1], U, k, config, RTYPE, tol, logger, tree)
+        f̃ = _surface_integrand_eval(
+            f,
+            phi_vec[1],
+            grad_phi_vec[1],
+            U,
+            k,
+            config,
+            RTYPE,
+            tol,
+            logger,
+            tree,
+        )
         return _integrate(
             f̃,
             phi_vec_new,
+            map(gradient, phi_vec_new),
             s_vec_new,
             Ũ,
             config,
@@ -302,10 +342,23 @@ function _integrate(
             subtree,
         )
     else
-        f̃ = _integrand_eval(f, phi_vec, s_vec, U, k, config, RTYPE, tol, logger, tree)
+        f̃ = _integrand_eval(
+            f,
+            phi_vec,
+            grad_phi_vec,
+            s_vec,
+            U,
+            k,
+            config,
+            RTYPE,
+            tol,
+            logger,
+            tree,
+        )
         return _integrate(
             f̃,
             phi_vec_new,
+            map(gradient, phi_vec_new),
             s_vec_new,
             Ũ,
             config,
@@ -329,6 +382,7 @@ defined as `I(x̃) = {t ∈ [a,b] : sᵢ*ϕᵢ(insert(̃x,k,t) ≥ 0 ∀ (ϕᵢ,
 function _integrand_eval(
     f,
     phi_vec,
+    grad_phi_vec,
     s_vec,
     U::HyperRectangle{N},
     k::Int,
@@ -343,12 +397,12 @@ function _integrand_eval(
     f̃ = (x̃) -> begin
         # compute the connected components
         bnds = [a, b]
-        for ϕᵢ in phi_vec
+        for (ϕᵢ, ∇ϕᵢ) in zip(phi_vec, grad_phi_vec)
             if N == 1
                 # possible several zeros. Use internal `find_zeros` method which
                 # works on the function `ϕᵢ` directly so that it can tap into
                 # the `bound` and `bound_gradient` methods.
-                _find_zeros!(bnds, ϕᵢ, U, config, tol, logger, tree)
+                _find_zeros!(bnds, ϕᵢ, ∇ϕᵢ, U, config, tol, logger, tree)
             else
                 # we know that g is monotonic since it corresponds to a
                 # height-direction, so at most a single root exists.
@@ -393,6 +447,7 @@ end
 function _surface_integrand_eval(
     f,
     phi,
+    phi_grad,
     U::HyperRectangle{N,T},
     k::Int,
     config,
@@ -403,29 +458,30 @@ function _surface_integrand_eval(
 ) where {N,T,RET_TYPE}
     xl, xu = bounds(U)
     a, b = xl[k], xu[k]
-    f̃ = (x̃) -> begin
-        g = (t) -> phi(insert(x̃, k, t))
-        if N == 1
-            # corner case where we have a "surface" integral in 1D. Arises only when calling
-            # `integrate` with `surface=true` on one-dimensional level-set functions.
-            roots = T[]
-            _find_zeros!(roots, phi, U, config, tol, logger, tree)
-            sum(roots) do root
-                x = insert(x̃, k, root)
-                ∇ϕ = gradient(phi, x)
-                return f(x) * norm(∇ϕ) * inv(abs(∇ϕ[k]))
-            end
-        else # guaranteed to have at most one zero
-            if g(a) * g(b) > 0
-                return zero(RET_TYPE)
-            else
-                root = config.find_zero(g, a, b, tol)
-                x = insert(x̃, k, root)
-                ∇ϕ = gradient(phi, x)
-                return f(x) * norm(∇ϕ) * inv(abs(∇ϕ[k]))
+    f̃ =
+        (x̃) -> begin
+            g = (t) -> phi(insert(x̃, k, t))
+            if N == 1
+                # corner case where we have a "surface" integral in 1D. Arises only when calling
+                # `integrate` with `surface=true` on one-dimensional level-set functions.
+                roots = T[]
+                _find_zeros!(roots, phi, phi_grad, U, config, tol, logger, tree)
+                sum(roots) do root
+                    x = insert(x̃, k, root)
+                    ∇ϕ = phi_grad(x)
+                    return f(x) * norm(∇ϕ) * inv(abs(∇ϕ[k]))
+                end
+            else # guaranteed to have at most one zero
+                if g(a) * g(b) > 0
+                    return zero(RET_TYPE)
+                else
+                    root = config.find_zero(g, a, b, tol)
+                    x = insert(x̃, k, root)
+                    ∇ϕ = phi_grad(x)
+                    return f(x) * norm(∇ϕ) * inv(abs(∇ϕ[k]))
+                end
             end
         end
-    end
     return f̃
 end
 
@@ -483,7 +539,7 @@ end
 Return all zeros of the function `f` in the `Segment` `U`. `f` should be callable as
 `f(x::SVector{1})`.
 """
-function _find_zeros!(roots, ϕ, U::Segment, config, tol, logger, tree)
+function _find_zeros!(roots, ϕ, ∇ϕ, U::Segment, config, tol, logger, tree)
     xl, xu = bounds(U)
     if norm(xu - xl) < config.min_vol(tol)
         # splitting has led to very small boxes, likely due to e.g. degenerate
@@ -503,7 +559,7 @@ function _find_zeros!(roots, ϕ, U::Segment, config, tol, logger, tree)
     if ϕl * ϕu > 0 # no zeros in the interval
         return roots
     else # maybe there are zeros
-        ∇ϕl, ∇ϕu = bound_gradient(ϕ, U) |> first
+        ∇ϕl, ∇ϕu = bound(∇ϕ, U) |> first
         if ∇ϕl * ∇ϕu > 0 # monotonic, so at most one zero
             if ϕ(xl) * ϕ(xu) ≤ 0
                 g = (t) -> ϕ(SVector(t))
@@ -519,8 +575,8 @@ function _find_zeros!(roots, ϕ, U::Segment, config, tol, logger, tree)
             tree_right = isnothing(tree) ? nothing : TreeNode(U2)
             isnothing(tree) || (push!(tree.children, (tree_left, 0), (tree_right, 0)))
             isnothing(logger) || (logger.subdivisions[1] += 1) # one-dimensional subdivision
-            _find_zeros!(roots, ϕ, U1, config, tol, logger, tree)
-            _find_zeros!(roots, ϕ, U2, config, tol, logger, tree)
+            _find_zeros!(roots, ϕ, ∇ϕ, U1, config, tol, logger, tree)
+            _find_zeros!(roots, ϕ, ∇ϕ, U2, config, tol, logger, tree)
             return roots
         end
     end
