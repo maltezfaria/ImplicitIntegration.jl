@@ -28,18 +28,6 @@ function gradient(f)
 end
 
 """
-    bound_gradient(f, lc, hc) --> bnds
-
-Compute a lower and upper bound for the gradient of a function `f : U → ℝ` valid
-for all `x ∈ U` in the sense that `bnds[i][1] ≤ ∂f/∂xᵢ(x) ≤ bnds[i][2]`.
-"""
-function bound_gradient(f, lc, hc)
-    ∇f = gradient(f)
-    return bound(∇f, lc, hc)
-end
-bound_gradient(f, rec::HyperRectangle) = bound_gradient(f, bounds(rec)...)
-
-"""
      restrict(f, k, v)
 
 Given a function `f : ℝᵈ → ℝ`, a value `v ∈ ℝ` and an integer `1 ≤ k ≤ d`, return the
@@ -62,20 +50,6 @@ function heuristic_bound(f, lc, hc, n = 10)
     end
 end
 
-function heuristic_bound_gradient(f, lc, hc, n = 10)
-    N = length(lc)
-    lbnds = ntuple(i -> Inf, N) |> SVector
-    ubnds = ntuple(i -> -Inf, N) |> SVector
-    iters = ntuple(i -> range(lc[i], hc[i], n), N)
-    for x in Iterators.product(iters...)
-        v = gradient(f, SVector(x))
-        lbnds = min.(lbnds, v)
-        ubnds = max.(ubnds, v)
-    end
-    bnds = ntuple(i -> SVector(lbnds[i], ubnds[i]), N)
-    return SVector(bnds)
-end
-
 """
     use_heuristic_bounds(F::Type, n = 10)
 
@@ -90,10 +64,6 @@ function use_heuristic_bounds(F::Type, n = 10)
     @eval begin
         function ImplicitIntegration.bound(f::$F, lc, hc)
             return ImplicitIntegration.heuristic_bound(f, lc, hc, $n)
-        end
-
-        function ImplicitIntegration.bound_gradient(f::$F, lc, hc)
-            return ImplicitIntegration.heuristic_bound_gradient(f, lc, hc, $n)
         end
     end
 end

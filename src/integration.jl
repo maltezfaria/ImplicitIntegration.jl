@@ -401,7 +401,7 @@ function _integrand_eval(
             if N == 1
                 # possible several zeros. Use internal `find_zeros` method which
                 # works on the function `ϕᵢ` directly so that it can tap into
-                # the `bound` and `bound_gradient` methods.
+                # the `bound(ϕᵢ)` and `bound(∇ϕᵢ)` methods.
                 _find_zeros!(bnds, ϕᵢ, ∇ϕᵢ, U, config, tol, logger, tree)
             else
                 # we know that g is monotonic since it corresponds to a
