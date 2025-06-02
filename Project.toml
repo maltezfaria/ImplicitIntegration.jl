@@ -1,7 +1,7 @@
 name = "ImplicitIntegration"
 uuid = "bc256489-3a69-4a66-afc4-127cc87e6182"
-version = "0.1.2"
 authors = ["Luiz M. Faria and Antoine Levitt"]
+version = "0.2.0"
 
 [deps]
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
@@ -12,17 +12,20 @@ Roots = "f2b01f46-fcfa-551c-844a-d8ac1e96c665"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 
 [weakdeps]
+DynamicPolynomials = "7c1d4256-1411-5781-91ec-d7bc3513ac07"
 Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
 
 [extensions]
+DynamicPolynomialsExt = "DynamicPolynomials"
 MakieExt = "Makie"
 
 [compat]
+DynamicPolynomials = "0.6"
 ForwardDiff = "0.10, 1"
 HCubature = "1.7"
 IntervalArithmetic = "0.22.18"
 LinearAlgebra = "1"
+Makie = "0.21, 0.22"
 Roots = "2"
 StaticArrays = "1"
 julia = "1.9"
-Makie = "0.21, 0.22"

@@ -156,9 +156,7 @@ function integrate(
     tree = loginfo ? logger.tree : nothing
     RET_TYPE = typeof(f(lc) * one(T) + f(hc) * one(T)) # a guess for the return type...
     s = surface ? 0 : -1
-    ∇ϕ = gradient(ϕ)
-    val =
-        _integrate(f, [ϕ], [∇ϕ], [s], U, config, RET_TYPE, Val(surface), tol, logger, tree)
+    val = _integrate(f, [ϕ], [s], U, config, RET_TYPE, Val(surface), tol, logger, tree)
     return (; val, logger)
 end
 
@@ -170,10 +168,9 @@ function integrate(f, ϕ, lc, hc; kwargs...)
     return integrate(f, ϕ, SVector{N,T}(lc), SVector{N,T}(hc); kwargs...)
 end
 
-function _integrate(
+@noinline function _integrate(
     f,
     phi_vec,
-    grad_phi_vec,
     s_vec,
     U::HyperRectangle{DIM,T},
     config,
@@ -183,6 +180,7 @@ function _integrate(
     logger,
     tree,
 ) where {DIM,T,RTYPE,S}
+    grad_phi_vec = map(gradient, phi_vec)
     xl, xu = bounds(U)
     # Start by pruning phi_vec...
     partial_cell_idxs = Int[]
@@ -251,7 +249,7 @@ function _integrate(
         qual = den == 0 ? 1.0 : lb * ub > 0 ? min(abs(lb), abs(ub)) / den : 0.0 # |∂ₖϕᵢ| / |∇ϕᵢ|
         if qual > config.min_qual
             # Restrict the level-set function to the box and push it to new list
-            ϕᵢᴸ, ϕᵢᵁ = restrict(phi_vec[i], k, xl[k]), restrict(phi_vec[i], k, xu[k])
+            ϕᵢᴸ, ϕᵢᵁ = project(phi_vec[i], k, xl[k]), project(phi_vec[i], k, xu[k])
             sign_∂ₖ = lb < 0 ? -1 : 1 # sign of ∂ₖϕᵢ
             sᵢᴸ, sᵢᵁ = sgn(sign_∂ₖ, s_vec[i], false, -1), sgn(sign_∂ₖ, s_vec[i], false, 1)
             push!(phi_vec_new, ϕᵢᴸ, ϕᵢᵁ)
@@ -272,7 +270,15 @@ function _integrate(
                 end
             else # split the box
                 @debug "Splitting $U along $dir"
-                Uₗ, Uᵣ     = split(U, dir)
+                Uₗ, Uᵣ = split(U, dir)
+                # compute the restriction of the level-sets on the left and right
+                phi_vec_left  = empty(phi_vec)
+                phi_vec_right = empty(phi_vec)
+                for ϕ in phi_vec
+                    ϕₗ, ϕᵣ = split(ϕ, U, dir)
+                    push!(phi_vec_left, ϕₗ)
+                    push!(phi_vec_right, ϕᵣ)
+                end
                 tree_left  = isnothing(tree) ? nothing : TreeNode(Uₗ)
                 tree_right = isnothing(tree) ? nothing : TreeNode(Uᵣ)
                 isnothing(tree) || (push!(tree.children, (tree_left, 0), (tree_right, 0)))
@@ -280,8 +286,7 @@ function _integrate(
                 tol /= 2 # FIXME: halving the tolerance is way too much in practice...
                 Iₗ = _integrate(
                     f,
-                    phi_vec,
-                    grad_phi_vec,
+                    phi_vec_left,
                     s_vec,
                     Uₗ,
                     config,
@@ -293,8 +298,7 @@ function _integrate(
                 )
                 Iᵣ = _integrate(
                     f,
-                    phi_vec,
-                    grad_phi_vec,
+                    phi_vec_right,
                     s_vec,
                     Uᵣ,
                     config,
@@ -331,7 +335,6 @@ function _integrate(
         return _integrate(
             f̃,
             phi_vec_new,
-            map(gradient, phi_vec_new),
             s_vec_new,
             Ũ,
             config,
@@ -358,7 +361,6 @@ function _integrate(
         return _integrate(
             f̃,
             phi_vec_new,
-            map(gradient, phi_vec_new),
             s_vec_new,
             Ũ,
             config,
@@ -570,13 +572,14 @@ function _find_zeros!(roots, ϕ, ∇ϕ, U::Segment, config, tol, logger, tree)
                 return roots
             end
         else # can't prove monotonicity nor lack of zeros, so split
-            U1, U2     = split(U, 1)
-            tree_left  = isnothing(tree) ? nothing : TreeNode(U1)
-            tree_right = isnothing(tree) ? nothing : TreeNode(U2)
+            Uₗ, Uᵣ     = split(U, 1)
+            ϕₗ, ϕᵣ     = split(ϕ, U, 1)
+            tree_left  = isnothing(tree) ? nothing : TreeNode(Uₗ)
+            tree_right = isnothing(tree) ? nothing : TreeNode(Uᵣ)
             isnothing(tree) || (push!(tree.children, (tree_left, 0), (tree_right, 0)))
             isnothing(logger) || (logger.subdivisions[1] += 1) # one-dimensional subdivision
-            _find_zeros!(roots, ϕ, ∇ϕ, U1, config, tol, logger, tree)
-            _find_zeros!(roots, ϕ, ∇ϕ, U2, config, tol, logger, tree)
+            _find_zeros!(roots, ϕₗ, gradient(ϕₗ), Uₗ, config, tol, logger, tree)
+            _find_zeros!(roots, ϕᵣ, gradient(ϕᵣ), Uᵣ, config, tol, logger, tree)
             return roots
         end
     end
