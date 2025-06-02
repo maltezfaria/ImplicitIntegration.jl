@@ -13,6 +13,7 @@ include("treenode.jl")
 include("interface.jl")
 include("integration.jl")
 include("quadgen.jl")
+include("bernstein.jl")
 
 export integrate, quadgen
 

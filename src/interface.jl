@@ -5,17 +5,36 @@ The following methods constitute the interace required by any function that is p
 implementation.
 =#
 
+# easily disable the default interface for e.g. testing that all needed methods are implemented
+try_default_interface() = nothing
+
+function disable_default_interface()
+    @eval try_default_interface() = error(
+        "Default interface is disabled. Please enable it with `enable_default_interface()`.",
+    )
+end
+
+function enable_default_interface()
+    @eval try_default_interface() = nothing
+end
+
 """
     bound(f, lc, hc) --> (lb, ub)
 
 Return a lower and upper bound for the function `f : U → ℝ` valid for all `x ∈ U`.
+
+    bound(∇f, lc, hc) --> bnds
+
+Compute a lower and upper bound for the gradient of a function `f : U → ℝ` valid
+for all `x ∈ U` in the sense that `bnds[i][1] ≤ ∂f/∂xᵢ(x) ≤ bnds[i][2]`.
 """
 function bound(f, lc, hc)
+    try_default_interface()
     N = length(lc)
     I = ntuple(i -> IntervalArithmetic.interval(lc[i], hc[i]), N) |> SVector
     return IntervalArithmetic.bounds.(f(I))
 end
-bound(f, rec) = bound(f, bounds(rec)...)
+bound(f, rec::HyperRectangle) = bound(f, bounds(rec)...)
 
 """
     gradient(f)
@@ -24,22 +43,42 @@ Compute the gradient function `f : ℝᵈ → ℝ`. The returned function takes 
 and returns the gradient `∇f(x) ∈ ℝᵈ`.
 """
 function gradient(f)
+    try_default_interface()
     return x -> ForwardDiff.gradient(f, x)
 end
 
 """
-     restrict(f, k, v)
+     project(f, k, v)
 
 Given a function `f : ℝᵈ → ℝ`, a value `v ∈ ℝ` and an integer `1 ≤ k ≤ d`, return the
-function `f̃ : ℝᵈ⁻¹ → ℝ` defined by restricting `f` to the value `v` along dimension `d`;
-i.e. `f̃(x) = f(x₁, ..., x_{k-1}, v, x_{k}, ..., x_d)`.
+function `f̃ : ℝᵈ⁻¹ → ℝ` defined by projecting `f` onto the hyperplane `xₖ = v`; i.e. `f̃(x) = f(x₁, ..., x_{k-1}, v, x_{k}, ..., x_d)`.
 
 !!! note
 
-    The returned type should also implement the interface methods `gradient`, `bound`,
-    and `bound_gradient`.
+    The returned type should also implement the interface methods `gradient`, `bound`.
 """
-restrict(f, k, v) = (x) -> f(insert(x, k, v))
+function project(f, k, v)
+    try_default_interface()
+    return (x) -> f(insert(x, k, v))
+end
+
+"""
+    split(f, lb, ub)
+
+Given a function `f : ℝᵈ → ℝ` and lower and upper bounds `lb, ub ∈ ℝᵈ`, return the
+restriction of `f` to the hyperrectangle defined by `lb` and `ub`.
+
+By default this function simply returns `f`, but it computing sharper bounds on the
+restricted function requires a more sophisticated implementation.
+"""
+function split(f, lb, ub, dir)
+    try_default_interface()
+    return f, f
+end
+function split(f, rec::HyperRectangle, dir)
+    lc, hc = bounds(rec)
+    return split(f, lc, hc, dir)
+end
 
 ## Heuristic "bounds" based on the function values at the corners of the rectangle
 
