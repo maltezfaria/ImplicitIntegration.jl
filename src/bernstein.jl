@@ -1,9 +1,28 @@
+
 struct BernsteinPolynomial{N,T} <: Function
     coeffs::Array{T,N}
     low_corner::SVector{N,T}
     high_corner::SVector{N,T}
 end
 
+"""
+    BernsteinPolynomial(c::AbstractArray, lc, hc)
+
+Create a multidimensional [Bernstein polynomial](https://en.wikipedia.org/wiki/Bernstein_polynomial#Generalizations_to_higher_dimension) with coefficients `c` defined on the hyperrectangle
+`[lc[1], hc[1]] × … × [lc[N], hc[N]]`.
+
+Calling `p(x)` evaluates the polynomial at the point `x = (x[1], …, x[N])` by the formula
+
+```math
+p(x_1,\\dots,x_D)=\\sum_{i_j=0}^{d_j}c_{i_1\\dots i_D}\\prod_{j=1}^D\\binom{d_j}{i_j}(x_j-l_j)^{i_j}(r_j-x_j)^{d_j-i_j}
+```
+
+where ``l_j = lc[j]`` and ``r_j = hc[j]`` are the lower and upper bounds of the
+hyperrectangle, respectively, and ``d_j = size(c)[j] - 1`` is the degree of the polynomial
+in dimension `j`.
+
+See also [`berninterp`](@ref).
+"""
 function BernsteinPolynomial(c::AbstractArray, lc, hc)
     N = ndims(c)
     return BernsteinPolynomial{N,eltype(c)}(c, SVector{N}(lc), SVector{N}(hc))
@@ -14,35 +33,12 @@ low_corner(p::BernsteinPolynomial)   = p.low_corner
 high_corner(p::BernsteinPolynomial)  = p.high_corner
 degree(p::BernsteinPolynomial)       = size(coefficients(p)) .- 1
 
-"""
-    bernstein_interp(vals, pts, lb, ub)
-
-Construct a Bernstein polynomial on `(lb[1], ub[1]) × … × (lb[N], ub[N])` that interpolates
-the values `vals` at the points `pts`. Note that `vals` and `pts`...
-"""
-function bernstein_interp(vals, pts, lb, ub, degree = size(vals) .- 1)
-    return V = vandermonde_matrix(degree, pts, lb, ub)
-end
-
-function vandermonde_matrix(degree, pts, lb, ub)
-    c = zeros(degree .+ 1)
-    p = BernsteinPolynomial(c, lb, ub)
-    A = Matrix{Float64}(undef, length(c), length(c))
-    for i in LinearIndices(c)
-        c[i] = 1.0
-        for j in LinearIndices(pts)
-            A[j, i] = p(pts[j])
-        end
-        c[i] = 0.0
-    end
-    return A
-end
-
 # evaluation
-function (p::BernsteinPolynomial{N})(x::SVector{N}) where {N}
+function (p::BernsteinPolynomial{N})(x) where {N}
+    x_ = SVector{N}(x) # try conversion to SVector
     l = low_corner(p)
     r = high_corner(p)
-    x₀ = (x - l) ./ (r - l)
+    x₀ = (x_ - l) ./ (r - l)
     c = coefficients(p)
     return _evaluate_bernstein(x₀, c, Val{N}(), 1, length(c))
 end
@@ -84,7 +80,12 @@ end
     end
 end
 
-# derivative
+"""
+    derivative(p::BernsteinPolynomial, d::Int)g
+
+Compute the derivative along dimension `d` of the Bernstein polynomial `p`, returning a new
+`BernsteinPolynomial` of the same dimension `N`.
+"""
 function derivative(p::BernsteinPolynomial{N}, d::Int) where {N}
     @assert 1 ≤ d ≤ N "Dimension $d out of bounds for polynomial of dimension $N"
     c = coefficients(p)
@@ -102,7 +103,14 @@ function derivative(p::BernsteinPolynomial{N}, d::Int) where {N}
     return BernsteinPolynomial(c′, l, u)
 end
 
-# split
+"""
+    split(p::BernsteinPolynomial, d::Integer, α = 0.5) --> pₗ, pᵣ
+
+Split the Bernstein polynomial `p` along dimension `d` at `lc[d] + (hc[d] - lc[d]) * α`,
+where `lc` and `hc` are the lower and upper corners of the hyperrectangle on which `p` is
+defined. Returns two new Bernstein polynomials `pₗ` and `pᵣ` representing the left and right
+polynomials.
+"""
 function split(p::BernsteinPolynomial{D,T}, d::Integer, α = 0.5) where {D,T}
     @assert 1 ≤ d ≤ D
     c = coefficients(p)
@@ -142,7 +150,12 @@ function split(p::BernsteinPolynomial{D,T}, d::Integer, α = 0.5) where {D,T}
     return p1, p2
 end
 
-# restriction
+"""
+    lower_restrict(p::BernsteinPolynomial{D}, d::Integer) where {D}
+
+Restricts the given `BernsteinPolynomial` `p` to the lower face (i.e., where the `d`-th coordinate is at its lower bound)
+along the specified dimension `d`. Returns a new `BernsteinPolynomial` of dimension `D-1` representing the restriction.
+"""
 function lower_restrict(p::BernsteinPolynomial{D,T}, d::Integer) where {D,T}
     @assert 1 ≤ d ≤ D
     c = coefficients(p)
@@ -154,6 +167,12 @@ function lower_restrict(p::BernsteinPolynomial{D,T}, d::Integer) where {D,T}
     )
 end
 
+"""
+    upper_restrict(p::BernsteinPolynomial{D}, d::Integer) where {D}
+
+Same as [`lower_restrict`](@ref), but restricts to the upper face (i.e., where the `d`-th
+coordinate is at its upper bound)
+"""
 function upper_restrict(p::BernsteinPolynomial{D,T}, d::Integer) where {D,T}
     @assert 1 ≤ d ≤ D
     c = coefficients(p)
@@ -165,7 +184,13 @@ function upper_restrict(p::BernsteinPolynomial{D,T}, d::Integer) where {D,T}
     )
 end
 
-# bound
+"""
+    bound(p::BernsteinPolynomial)
+
+Return the bounds of the Bernstein polynomial `p` as a tuple `(m, M)`, where `m` is a lower
+bound and `M` is an upper bound on the polynomial's values over the hyperrectangle with
+corners `low_corner(p)` and `high_corner(p)`.
+"""
 function bound(p::BernsteinPolynomial)
     c = coefficients(p)
     m, M = extrema(c)
@@ -178,38 +203,87 @@ function bound(p::BernsteinPolynomial)
     return m, M
 end
 
-function vandermonde_matrix(degree, pts)
-    N = length(degree)
-    c = zeros(degree .+ 1)
-    l = ntuple(i -> 0.0, N) |> SVector
-    u = ntuple(i -> 1.0, N) |> SVector
+# interpolation utilities
+"""
+    uniform_points(n[, lc, hc])
+
+Generate `n[1] × … × n[D]` uniformly spaced points in the
+hyperrectangle defined by `(lc[1], hc[1]) × … × (lc[D], hc[D])`, where `D = length(n) = length(lc) = length(hc)`. By default `lc = (0, … , 0)` and `hc = (1, … , 1)`, generating
+`n[1] × … × n[D]` points in the unit hypercube `[0, 1]^D`.
+
+The points are returned as an array, of size `n`, containing `SVector` of dimension `D`.
+"""
+Memoize.@memoize Dict function uniform_points(n)
+    map(CartesianIndices(n)) do I
+        Itup = Tuple(I)
+        return SVector((Itup .- 1) ./ (n .- 1))
+    end
+end
+function uniform_points(n, lc, hc)
+    @assert length(n) == length(lc) == length(hc) "Dimensions of n, lc, and hc must match."
+    return map(x -> lc .+ x .* (hc .- lc), uniform_points(n))
+end
+
+"""
+    berninterp([T,] vals::Array, lb, ub)
+
+Construct a Bernstein polynomial of that interpolates the values `vals` at the points given
+by `uniform_points(size(vals), lb, ub)`, where `lb` and `ub` are the lower and upper
+corners of the hyperrectangle on which the polynomial is defined.
+
+# Examples
+
+```jldoctest
+f = (x) -> (1 - x[1])^2 + x[1]^4 + x[2]^5 * x[1]^3
+lb = SVector(0.1, -0.3)
+ub = SVector(1.2, 1.7)
+pts = ImplicitIntegration.uniform_points((5, 6), lb, ub)
+vals = f.(pts)
+p = ImplicitIntegration.berninterp(vals, lb, ub)
+x = lb .+ (ub - lb) .* rand(SVector{2})
+f(x) ≈ p(x)
+
+# output
+
+true
+```
+"""
+function berninterp(T, vals::Array, lb, ub)
+    @assert ndims(vals) == length(lb) == length(ub) "Dimensions of vals, lb, and ub must match."
+    # create reference interpolation matrix if needed
+    n = size(vals)
+    V = reference_vandermonde_matrix(T, n)
+    c = reshape(V \ vec(vals), n)
+    p = BernsteinPolynomial(c, lb, ub)
+    return p
+end
+berninterp(vals::Array, lb, ub) = berninterp(Float64, vals, lb, ub)
+
+"""
+    reference_vandermonde_matrix([T=Float64,] n)
+
+Vandermond matrix for Bernstein interpolation on `uniform_points(n, lb, ub)`, with `lb = (0, … , 0)` and `ub = (1, … , 1)`. The ordering of the basis elements is the same as in the
+evaluation of the Bernstein polynomial. The optional type parameter `T` specifies the
+element type of the matrix.
+"""
+Memoize.@memoize Dict function reference_vandermonde_matrix(T, n)
+    N = length(n)
+    c = zeros(T, n)
+    l = ntuple(i -> zero(T), N) |> SVector
+    u = ntuple(i -> one(T), N) |> SVector
+    pts = uniform_points(n, l, u)
     p = BernsteinPolynomial(c, l, u)
-    A = Matrix{Float64}(undef, length(c), length(c))
+    A = Matrix{T}(undef, length(c), length(c))
     for i in LinearIndices(c)
-        c[i] = 1.0
+        c[i] = one(T)
         for j in LinearIndices(pts)
             A[j, i] = p(pts[j])
         end
-        c[i] = 0.0
+        c[i] = zero(T)
     end
-    return A
+    return factorize(A)
 end
-function vandermond_matrix(degree)
-    # uniform grid on [0,1]^N for the interpolation
-    pts = map(CartesianIndices(degree .+ 1)) do I
-        Itup = Tuple(I)
-        return SVector((Itup .- 1) ./ degree)
-    end
-    return vandermonde_matrix(degree, pts)
-end
-
-# simple point distributions for interpolation
-function uniform_points(degree, lc, hc)
-    map(CartesianIndices(degree .+ 1)) do I
-        Itup = Tuple(I)
-        return SVector((Itup .- 1) ./ degree) .* (hc .- lc) .+ lc
-    end
-end
+reference_vandermonde_matrix(n) = reference_vandermonde_matrix(Float64, n)
 
 function Base.show(io::IO, ::MIME"text/plain", p::BernsteinPolynomial{N}) where {N}
     lb = low_corner(p)
@@ -230,15 +304,20 @@ function Base.show(io::IO, ::MIME"text/plain", p::BernsteinPolynomial{N}) where 
     end
 end
 
-# add a Polynomial type for convenience
+# Polynomial type for convenience
 
 """
     struct Polynomial{D,T}
 
-`D`-dimensional polynomial with coefficients of type `T`. The coefficients are
-stored as a dense array, and are implicitly associated with a monomial basis;
-the `c[I]` coefficient multiplies the monomial term `prod(x.^(I .- 1))`, where
-`I` is a `D`-dimensional multi-index.
+`D`-dimensional polynomial with coefficients of type `T`. The coefficients are stored as a
+dense array, and are implicitly associated with a monomial basis; i.e. the `c[I]`
+coefficient multiplies the monomial term `prod(x.^(I .- 1))`, where `I` is a `D`-dimensional
+multi-index.
+
+Passing a `Dict{NTuple{N,Int},T}` to the constructor will create a polynomial with
+coefficients given by `c[k]` for the monomial `x₁^k[1] * x₂^k[2] * ... * x_N^k[N]`, where
+`k` is a multi-index of length `N` corresponding to the key, and `c::T` is the value
+associated with that key.
 """
 struct Polynomial{D,T}
     coeffs::Array{T,D}
@@ -276,30 +355,11 @@ function Base.show(io::IO, ::MIME"text/plain", p::Polynomial{D}) where {D}
     return print(io, str[1:(end-2)])
 end
 
-function rebase(a::Vector{<:Real}, l::Real, r::Real)
-    n = length(a)
-    ã = copy(a)
-    for i in 0:n-2
-        ã[n-i:n] .*= (r - l)
-        ã[n-i-1:n-1] .+= ã[n-i:n] ./ (r - l) .* l
-    end
-    return ã
-end
-
-function rebase(A::Array{<:Real,D}, L, R) where {(D)}
-    Ã = copy(A)
-    for d in 1:D
-        Ã = mapslices(Ã; dims = d) do a
-            return rebase(a, L[d], R[d])
-        end
-    end
-    return Ã
-end
-
 """
-    power2bernstein(a::Array{<:Real,D}, U::HyperRectangle{D}=□(D), k=size(a).-1) where{D}
+    BernsteinPolynomial(p::Polynomial, lb, ub)
 
-Convert a polynomial in power series into a Bernstein polynomial on `U` of degree `k`.
+Convert a `Polynomial` `p` with coefficients in the monomial basis to a Bernstein polynomial
+on the domain defined by the lower corner `lb` and upper corner `ub`.
 """
 function BernsteinPolynomial(p::Polynomial, lb, ub)
     c = coefficients(p)
@@ -307,10 +367,16 @@ function BernsteinPolynomial(p::Polynomial, lb, ub)
     return BernsteinPolynomial(b, lb, ub)
 end
 
+"""
+    _monomial_to_bernstein(c::Array, lb, ub)
+
+Convert a polynomial with coefficients `c` in the monomial basis to a Bernstein polynomial
+on the hyperrectangle defined by `lb` and `ub`.
+"""
 function _monomial_to_bernstein(c, lb, ub)
     D = ndims(c)
     b = zero(c)
-    c = rebase(c, lb, ub)
+    c = _rebase(c, lb, ub)
     k = size(c) .- 1
     for i in CartesianIndices(c)
         temp = zeros(Tuple([i[j] for j in 1:D]))
@@ -325,7 +391,27 @@ function _monomial_to_bernstein(c, lb, ub)
     return b
 end
 
-## interface methods
+function _rebase(a::Vector{<:Real}, l::Real, r::Real)
+    n = length(a)
+    ã = copy(a)
+    for i in 0:n-2
+        ã[n-i:n] .*= (r - l)
+        ã[n-i-1:n-1] .+= ã[n-i:n] ./ (r - l) .* l
+    end
+    return ã
+end
+
+function _rebase(A::Array{<:Real,D}, L, R) where {(D)}
+    Ã = copy(A)
+    for d in 1:D
+        Ã = mapslices(Ã; dims = d) do a
+            return _rebase(a, L[d], R[d])
+        end
+    end
+    return Ã
+end
+
+## interface methods for `integrate` and `quadgen`
 function bound(b::BernsteinPolynomial, lc, hc)
     if lc == low_corner(b) && hc == high_corner(b)
         return bound(b)
@@ -367,4 +453,28 @@ function split(p::BernsteinPolynomial, lb, ub, dir)
     else
         error("Bounding box does not match polynomial bounds.")
     end
+end
+
+"""
+    bernstein_interp(vals, pts, lb, ub)
+
+Construct a Bernstein polynomial on `(lb[1], ub[1]) × … × (lb[N], ub[N])` that interpolates
+the values `vals` at the points `pts`. Note that `vals` and `pts`...
+"""
+function bernstein_interp(vals, pts, lb, ub, degree = size(vals) .- 1)
+    return V = vandermonde_matrix(degree, pts, lb, ub)
+end
+
+function vandermonde_matrix(degree, pts, lb, ub)
+    c = zeros(degree .+ 1)
+    p = BernsteinPolynomial(c, lb, ub)
+    A = Matrix{Float64}(undef, length(c), length(c))
+    for i in LinearIndices(c)
+        c[i] = 1.0
+        for j in LinearIndices(pts)
+            A[j, i] = p(pts[j])
+        end
+        c[i] = 0.0
+    end
+    return A
 end

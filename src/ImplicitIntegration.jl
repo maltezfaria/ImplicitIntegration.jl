@@ -7,6 +7,7 @@ import IntervalArithmetic
 import Roots
 import HCubature
 import StaticArrays: SVector, MVector, insert, deleteat, setindex, popfirst, pop, push
+import Memoize
 
 include("hyperrectangle.jl")
 include("treenode.jl")

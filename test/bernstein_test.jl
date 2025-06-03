@@ -149,30 +149,28 @@ end
     ImplicitIntegration.enable_default_interface()
 end
 
-# @testset "Interpolation" begin
-#     @testset "1D" begin
-#         f = (x) -> (1 - x[1])^2 + x[1]^4
-#         degree = (100,)
-#         lb = SVector(0.0)
-#         ub = SVector(1.0)
-#         x = ImplicitIntegration.uniform_points(degree, lb, ub)
-#         p = ImplicitIntegration.BernsteinPolynomial(f.(x), x, lb, ub)
-#         @test all(f(x) ≈ p(x) for x in rand(SVector{1}, 1000))
-#         V = ImplicitIntegration.vandermonde_matrix(degree, x)
-#         vals = f.(x)
-#         p = ImplicitIntegration.BernsteinPolynomial(V \ vals, SVector(0.0), SVector(1.0))
-#         @test all(f(x) ≈ p(x) for x in rand(SVector{1}, 1000))
-#     end
-#     @testset "2D" begin
-#         f = (x) -> (1 - x[1])^2 + x[1]^4 + x[2]^5 * x[1]^3
-#         degree = (4, 5)
-#         lc = SVector(0.0, 0.0)
-#         hc = SVector(1.0, 1.0)
-#         x = ImplicitIntegration.uniform_points(degree, lc, hc)
-#         V = ImplicitIntegration.vandermonde_matrix(degree, x)
-#         vals = f.(x)
-#         c = reshape(V \ vec(vals), degree .+ 1)
-#         p = ImplicitIntegration.BernsteinPolynomial(c, lc, hc)
-#         @test all(f(x) ≈ p(x) for x in rand(SVector{2}, 1000))
-#     end
-# end
+@testset "Interpolation" begin
+    shift = (x, lb, ub) -> lb .+ (ub - lb) .* x
+    @testset "1D" begin
+        f = (x) -> (1 - x[1])^2 + x[1]^4
+        n = (5,)
+        lb = SVector(-0.2)
+        ub = SVector(1.3)
+        pts = ImplicitIntegration.uniform_points(n, lb, ub)
+        vals = f.(pts)
+        p = ImplicitIntegration.berninterp(vals, lb, ub)
+        xtest = map(x -> shift(x, lb, ub), rand(SVector{1}, 100))
+        @test all(f(x) ≈ p(x) for x in xtest)
+    end
+    @testset "2D" begin
+        f = (x) -> (1 - x[1])^2 + x[1]^4 + x[2]^5 * x[1]^3
+        n = (5, 6)
+        lb = SVector(0.1, -0.3)
+        ub = SVector(1.2, 1.7)
+        pts = ImplicitIntegration.uniform_points(n, lb, ub)
+        vals = f.(pts)
+        p = ImplicitIntegration.berninterp(vals, lb, ub)
+        xtest = map(x -> shift(x, lb, ub), rand(SVector{2}, 100))
+        @test all(f(x) ≈ p(x) for x in xtest)
+    end
+end
