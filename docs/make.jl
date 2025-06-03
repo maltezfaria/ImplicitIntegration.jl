@@ -31,4 +31,8 @@ makedocs(;
     draft = false,
 )
 
-deploydocs(; repo = "github.com/maltezfaria/ImplicitIntegration.jl", devbranch = "main")
+deploydocs(;
+    repo = "github.com/maltezfaria/ImplicitIntegration.jl",
+    devbranch = "main",
+    push_preview = true,
+)
