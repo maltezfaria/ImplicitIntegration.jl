@@ -13,7 +13,7 @@ using ImplicitIntegration, StaticArrays
 using GLMakie, LinearAlgebra, DynamicPolynomials
 p1 = SVector(-1.0, 0)
 p2 = SVector(1.0, 0)
-b = 1.1
+b = 1.01
 ϕ = x -> (x - p1) ⋅ (x - p1) * (x - p2) ⋅ (x - p2) - b^2
 @polyvar x y
 poly = ((x,y) .- p1) ⋅ ((x,y) .- p1) * ((x,y) .- p2) ⋅ ((x,y) .- p2) - b^2

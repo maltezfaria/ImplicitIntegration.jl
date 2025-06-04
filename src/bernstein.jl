@@ -224,12 +224,26 @@ function uniform_points(n, lc, hc)
     return map(x -> lc .+ x .* (hc .- lc), uniform_points(n))
 end
 
+Memoize.@memoize function chebyshev_points(nt)
+    nodes1d = map(n -> [(-cos(k * π / (n - 1)) + 1) / 2 for k in 0:(n-1)], nt)
+    it = Iterators.product(nodes1d...)
+    return SVector.(it)
+end
+function chebyshev_points(nt, lb, ub)
+    @assert length(nt) == length(lb) == length(ub) "Dimensions of nt, lb, and ub must match."
+    pts = chebyshev_points(nt)
+    return map(x -> lb .+ x .* (ub .- lb), pts)
+end
+
 """
-    berninterp([T,] vals::Array, lb, ub)
+    berninterp([T=Float64,] vals::Array, lb, ub)
 
 Construct a Bernstein polynomial of that interpolates the values `vals` at the points given
 by `uniform_points(size(vals), lb, ub)`, where `lb` and `ub` are the lower and upper
 corners of the hyperrectangle on which the polynomial is defined.
+
+The optional type parameter `T` specifies the precision used for computing the polynomial
+coefficients.
 
 # Examples
 
@@ -248,7 +262,7 @@ f(x) ≈ p(x)
 true
 ```
 """
-function berninterp(T, vals::Array, lb, ub)
+function berninterp(T::Type, vals::Array, lb, ub)
     @assert ndims(vals) == length(lb) == length(ub) "Dimensions of vals, lb, and ub must match."
     # create reference interpolation matrix if needed
     n = size(vals)
@@ -258,6 +272,22 @@ function berninterp(T, vals::Array, lb, ub)
     return p
 end
 berninterp(vals::Array, lb, ub) = berninterp(Float64, vals, lb, ub)
+
+"""
+    berninterp([T=Float64,] f, n, lb, ub)
+
+Construct a Bernstein polynomial of degree `n` that interpolates the function `f` at the
+points given by `uniform_points(n, lb, ub)`, where `lb` and `ub` are the lower and upper
+corners of the hyperrectangle on which the polynomial is defined. The optional type parameter
+`T` specifies the precision used for computing the polynomial coefficients.
+"""
+function berninterp(T::Type, f, n, lb, ub)
+    @assert length(n) == length(lb) == length(ub) "Dimensions of n, lb, and ub must match."
+    pts = uniform_points(n, lb, ub)
+    vals = f.(pts)
+    return berninterp(T, vals, lb, ub)
+end
+berninterp(f, n, lb, ub) = berninterp(Float64, f, n, lb, ub)
 
 """
     reference_vandermonde_matrix([T=Float64,] n)

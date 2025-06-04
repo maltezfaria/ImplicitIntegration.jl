@@ -161,6 +161,8 @@ end
         p = ImplicitIntegration.berninterp(vals, lb, ub)
         xtest = map(x -> shift(x, lb, ub), rand(SVector{1}, 100))
         @test all(f(x) ≈ p(x) for x in xtest)
+        p = ImplicitIntegration.berninterp(f, n, lb, ub)
+        @test all(f(x) ≈ p(x) for x in xtest)
     end
     @testset "2D" begin
         f = (x) -> (1 - x[1])^2 + x[1]^4 + x[2]^5 * x[1]^3
@@ -171,6 +173,8 @@ end
         vals = f.(pts)
         p = ImplicitIntegration.berninterp(vals, lb, ub)
         xtest = map(x -> shift(x, lb, ub), rand(SVector{2}, 100))
+        @test all(f(x) ≈ p(x) for x in xtest)
+        p = ImplicitIntegration.berninterp(f, n, lb, ub)
         @test all(f(x) ≈ p(x) for x in xtest)
     end
 end

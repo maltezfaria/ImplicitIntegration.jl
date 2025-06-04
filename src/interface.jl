@@ -5,17 +5,16 @@ The following methods constitute the interace required by any function that is p
 implementation.
 =#
 
-# easily disable the default interface for e.g. testing that all needed methods are implemented
-try_default_interface() = nothing
+# easily disable the default interface for e.g. testing that all needed methods are
+# implemented
+const ALLOW_DEFAULT_INTERFACE = Ref(true)
 
 function disable_default_interface()
-    @eval try_default_interface() = error(
-        "Default interface is disabled. Please enable it with `enable_default_interface()`.",
-    )
+    return ALLOW_DEFAULT_INTERFACE[] = false
 end
 
 function enable_default_interface()
-    @eval try_default_interface() = nothing
+    return ALLOW_DEFAULT_INTERFACE[] = true
 end
 
 """
@@ -29,7 +28,9 @@ Compute a lower and upper bound for the gradient of a function `f : U → ℝ` v
 for all `x ∈ U` in the sense that `bnds[i][1] ≤ ∂f/∂xᵢ(x) ≤ bnds[i][2]`.
 """
 function bound(f, lc, hc)
-    try_default_interface()
+    ALLOW_DEFAULT_INTERFACE[] || error(
+        "Default interface is disabled, please implement the `bound` method for your function type.",
+    )
     N = length(lc)
     I = ntuple(i -> IntervalArithmetic.interval(lc[i], hc[i]), N) |> SVector
     return IntervalArithmetic.bounds.(f(I))
@@ -43,7 +44,9 @@ Compute the gradient function `f : ℝᵈ → ℝ`. The returned function takes 
 and returns the gradient `∇f(x) ∈ ℝᵈ`.
 """
 function gradient(f)
-    try_default_interface()
+    ALLOW_DEFAULT_INTERFACE[] || error(
+        "Default interface is disabled, please implement the `gradient` method for your function type.",
+    )
     return x -> ForwardDiff.gradient(f, x)
 end
 
@@ -58,7 +61,9 @@ function `f̃ : ℝᵈ⁻¹ → ℝ` defined by projecting `f` onto the hyperpla
     The returned type should also implement the interface methods `gradient`, `bound`.
 """
 function project(f, k, v)
-    try_default_interface()
+    ALLOW_DEFAULT_INTERFACE[] || error(
+        "Default interface is disabled, please implement the `project` method for your function type.",
+    )
     return (x) -> f(insert(x, k, v))
 end
 
@@ -72,7 +77,9 @@ By default this function simply returns `f`, but it computing sharper bounds on 
 restricted function requires a more sophisticated implementation.
 """
 function split(f, lb, ub, dir)
-    try_default_interface()
+    ALLOW_DEFAULT_INTERFACE[] || error(
+        "Default interface is disabled, please implement the `split` method for your function type.",
+    )
     return f, f
 end
 function split(f, rec::HyperRectangle, dir)

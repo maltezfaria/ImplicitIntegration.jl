@@ -8,7 +8,7 @@ function __init__()
 end
 
 function ImplicitIntegration.BernsteinPolynomial(p::DynamicPolynomials.Polynomial, lb, ub)
-    T     = DynamicPolynomials.coefficienttype(p)
+    T     = DynamicPolynomials.coefficient_type(p)
     sz    = mapreduce(m -> DynamicPolynomials.exponents(m), (a, b) -> max.(a, b), DynamicPolynomials.monomials(p)) .+ 1
     coefs = zeros(T, sz...)
     for t in terms(p)
