@@ -1,7 +1,9 @@
 [deps]
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
 DocumenterCitations = "daee34ce-89f3-4625-b898-19384cb65244"
+DynamicPolynomials = "7c1d4256-1411-5781-91ec-d7bc3513ac07"
 GLMakie = "e9467ef8-e4e7-5192-8a1a-b1aee30e663a"
 ImplicitIntegration = "bc256489-3a69-4a66-afc4-127cc87e6182"
+IntervalArithmetic = "d1acc4aa-44c8-5952-acd4-ba5d80a2a253"
 LiveServer = "16fef848-5104-11e9-1b77-fb7a48bbb589"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"

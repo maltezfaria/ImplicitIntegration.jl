@@ -198,3 +198,21 @@ end
     )
     @test result.val ≈ ref
 end
+
+@testset "Default interface" begin
+    @test try
+        ImplicitIntegration.bound(x -> x, (0.0,), (1.0,))
+        ImplicitIntegration.gradient(x -> x[1])
+        ImplicitIntegration.project(x -> x[1], 1, 0.5)
+        ImplicitIntegration.split(x -> x[1], (0.0,), (1.0,), 1)
+        true
+    catch
+        false
+    end
+    ImplicitIntegration.disable_default_interface()
+    @test_throws ErrorException ImplicitIntegration.bound(x -> x, (0.0,), (1.0,))
+    @test_throws ErrorException ImplicitIntegration.gradient(x -> x[1])
+    @test_throws ErrorException ImplicitIntegration.project(x -> x[1], 1, 0.5)
+    @test_throws ErrorException ImplicitIntegration.split(x -> x[1], (0.0,), (1.0,), 1)
+    ImplicitIntegration.enable_default_interface()
+end

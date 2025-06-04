@@ -31,10 +31,10 @@ surface, and ``U = [a_1, b_1] \times \ldots \times [a_d, b_d]`` is a bounding
 
 ## Installation
 
-Since the package is not yet registered, you can install it by running
+To install the package, open the Julia REPL and run:
 
 ```julia
-using Pkg; Pkg.add("https://github.com/maltezfaria/ImplicitIntegration.jl");
+using Pkg; Pkg.add("ImplicitIntegration");
 ```
 
 ## Basic usage
@@ -76,7 +76,7 @@ println(int_surface.logger)
 
 It is also possible to visualize the computed tree structure by loading one of Makie's
 backends and calling the `plot` method on the `logger` object (mostly useful for debugging
-purposes and in 2D):
+purposes):
 
 ```@example overview-example
 using GLMakie
@@ -113,46 +113,12 @@ current_figure() # hide
 
 See the [`quadgen`](@ref) docstrings for more information on the available options.
 
-## Interface methods
+## Going further
 
-As alluded to in the [overview section](@ref overview), the underlying algorithm relies on bounding
-the level-set function ``\phi`` as well as its partial derivatives ``\partial_{x_i} \phi``
-in order to find an appropriate height function. By default, `ImplicitIntegration.jl` uses a
-combination of
-[IntervalArithmetic.jl](https://github.com/JuliaIntervals/IntervalArithmetic.jl) and
-[ForwardDiff.jl](https://github.com/JuliaDiff/ForwardDiff.jl) to perform these task. 
-
-There are at least two situations, however, where it may be beneficial (or even required) to
-overload the defaults:
-
-- `ForwardDiff` and/or `IntervalArithmetic` do not work with your function type
-- The bounds provided by the default methods are innacurate and/or slow
-
-In such cases, you can overload the following methods for your levelset `ϕ`:
-
-- `ϕ(x::SVector{N,<:Real})`: evaluate the function
-- `ϕ(I::SVector{N,<:Interval})`: bound the function
-- `ϕ(x::SVector{N,<:ForwardDiff.Dual{Tg,T<:Real,M}})`, `M <= N`: evaluate the Jacobian
-  vector product
-- `ϕ(x::SVector{N,<:ForwardDiff.Dual{Tg,T<:Interval,M}})`, `M <= N`: bound the Jacobian
-  vector product
-  
-For instance, here's how to implement the Jacobian vector product overload using a
-user-provided `ϕ_and_∇ϕ(x)` function:
-```julia
-function ϕ(x::SVector{S,<:ForwardDiff.Dual{Tg,T,Npartials}}) where {S, Tg, T, Npartials}
-    ϕx, ∇ϕx = ϕ_and_∇ϕ(ForwardDiff.value.(x))
-    partials = ntuple(ipart -> sum(∇ϕx .* ForwardDiff.partials.(x,ipart)), Npartials)
-    ForwardDiff.Dual{Tg}(ϕx, partials...)
-end
-```
-This is enough, provided `ϕ_and_∇ϕ` supports interval inputs. If it doesn't, just add
-a `ϕ_and_∇ϕ(x::SVector{<:Interval})` method that computes the bound and returns it as
-an `Interval`. Note that ForwardDiff and IntervalArithmetic are both composable: if
-`ϕ` is the composition of two functions `ϕ1` and `ϕ2`, you can use custom overloads 
-for either or both of the two functions.
-
-## Bibliography
-
-```@bibliography
-```
+The basic usage examples above, as well as the docstrings for the [`integrate`](@ref) and
+[`quadgen`](@ref) functions, should be enough to get you started with the package. There are
+cases, however, where you may want to overload the default behavior for your
+custom types, and that is covered in the [`Specializations`](@ref specializations) section. Of particular
+interest is the case where the implicit function is a polynomial, in which case
+`ImplicitIntegration` provides a special [`BernsteinPolynomial`](@ref) type that can be used
+to improve the performance of the integration and quadrature methods; see the [`Bernstein polynomials`](@ref bernstein-polynomials) section for more details.

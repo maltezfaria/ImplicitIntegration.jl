@@ -2,7 +2,7 @@
 CurrentModule = ImplicitIntegration
 ```
 
-# Docstrings
+# [Docstrings](@id docstrings)
 
 ```@index
 ```
