@@ -180,7 +180,6 @@ end
     logger,
     tree,
 ) where {DIM,T,RTYPE,S}
-    grad_phi_vec = map(gradient, phi_vec)
     xl, xu = bounds(U)
     # Start by pruning phi_vec...
     partial_cell_idxs = Int[]
@@ -196,6 +195,7 @@ end
     end
     phi_vec = phi_vec[partial_cell_idxs]
     s_vec = s_vec[partial_cell_idxs]
+    grad_phi_vec = map(gradient, phi_vec)
     # Finished pruning. If we did not return before this point, then the domain is neither
     # empty nor full. Next try to find a good direction to recurse on. We will choose the
     # direction with the largest gradient.
@@ -417,9 +417,7 @@ function _integrand_eval(
         # HACK: keep only the unique elements in bnds up to ≈ 1e-8 relative tolerance.
         # Avoids cases where we have two zeros that are very close to each other, usually
         # coming from a degenerate root (e.g. x^2 at x = 0 with numerical noise).
-        n_before = length(bnds)
         unique!(x -> round(x; sigdigits = 8), bnds)
-        n_after = length(bnds)
         # compute the integral
         acc = zero(RET_TYPE)
         for i in 1:(length(bnds)-1) # loop over each segment
@@ -462,29 +460,30 @@ function _surface_integrand_eval(
 ) where {N,T,RET_TYPE}
     xl, xu = bounds(U)
     a, b = xl[k], xu[k]
-    f̃ = (x̃) -> begin
-        g = (t) -> phi(insert(x̃, k, t))
-        if N == 1
-            # corner case where we have a "surface" integral in 1D. Arises only when calling
-            # `integrate` with `surface=true` on one-dimensional level-set functions.
-            roots = T[]
-            _find_zeros!(roots, phi, phi_grad, U, config, tol, logger, tree)
-            sum(roots) do root
-                x = insert(x̃, k, root)
-                ∇ϕ = phi_grad(x)
-                return f(x) * norm(∇ϕ) * inv(abs(∇ϕ[k]))
-            end
-        else # guaranteed to have at most one zero
-            if g(a) * g(b) > 0
-                return zero(RET_TYPE)
-            else
-                root = config.find_zero(g, a, b, tol)
-                x = insert(x̃, k, root)
-                ∇ϕ = phi_grad(x)
-                return f(x) * norm(∇ϕ) * inv(abs(∇ϕ[k]))
+    f̃ =
+        (x̃) -> begin
+            g = (t) -> phi(insert(x̃, k, t))
+            if N == 1
+                # corner case where we have a "surface" integral in 1D. Arises only when calling
+                # `integrate` with `surface=true` on one-dimensional level-set functions.
+                roots = T[]
+                _find_zeros!(roots, phi, phi_grad, U, config, tol, logger, tree)
+                sum(roots) do root
+                    x = insert(x̃, k, root)
+                    ∇ϕ = phi_grad(x)
+                    return f(x) * norm(∇ϕ) * inv(abs(∇ϕ[k]))
+                end
+            else # guaranteed to have at most one zero
+                if g(a) * g(b) > 0
+                    return zero(RET_TYPE)
+                else
+                    root = config.find_zero(g, a, b, tol)
+                    x = insert(x̃, k, root)
+                    ∇ϕ = phi_grad(x)
+                    return f(x) * norm(∇ϕ) * inv(abs(∇ϕ[k]))
+                end
             end
         end
-    end
     return f̃
 end
 
