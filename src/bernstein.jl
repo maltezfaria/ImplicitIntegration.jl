@@ -123,12 +123,12 @@ function split(p::BernsteinPolynomial{D,T}, d::Integer, α = 0.5) where {D,T}
         for i in k:-1:1
             if i ≥ n
                 push!(c1, b[1])
-                @. b[1:n-1] = b[1:n-1] * (1 - α) + b[2:n] * α
+                @. b[1:(n-1)] = b[1:(n-1)] * (1 - α) + b[2:n] * α
                 b[n] = b[n] * (1 - α)
             else
                 push!(c1, b[1])
                 pushfirst!(c2, b[i+1])
-                @. b[1:i] = b[1:i] * (1 - α) + b[2:i+1] * α
+                @. b[1:i] = b[1:i] * (1 - α) + b[2:(i+1)] * α
             end
         end
         push!(c1, b[1])
@@ -138,12 +138,12 @@ function split(p::BernsteinPolynomial{D,T}, d::Integer, α = 0.5) where {D,T}
     lc, hc = low_corner(p), high_corner(p)
     split_pos = lc[d] + (hc[d] - lc[d]) * α
     p1 = BernsteinPolynomial(
-        collect(selectdim(coeffs, d, 1:k+1)),
+        collect(selectdim(coeffs, d, 1:(k+1))),
         lc,
         setindex(hc, split_pos, d),
     )
     p2 = BernsteinPolynomial(
-        collect(selectdim(coeffs, d, k+1:k+n)),
+        collect(selectdim(coeffs, d, (k+1):(k+n))),
         setindex(lc, split_pos, d),
         hc,
     )
@@ -424,9 +424,9 @@ end
 function _rebase(a::Vector{<:Real}, l::Real, r::Real)
     n = length(a)
     ã = copy(a)
-    for i in 0:n-2
-        ã[n-i:n] .*= (r - l)
-        ã[n-i-1:n-1] .+= ã[n-i:n] ./ (r - l) .* l
+    for i in 0:(n-2)
+        ã[(n-i):n] .*= (r - l)
+        ã[(n-i-1):(n-1)] .+= ã[(n-i):n] ./ (r - l) .* l
     end
     return ã
 end

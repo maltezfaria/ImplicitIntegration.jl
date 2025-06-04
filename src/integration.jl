@@ -19,9 +19,9 @@ following fields:
     `k` is given by `|∂ₖϕ| / |∇ϕ|`.
 """
 @kwdef struct Config{T1,T2,T3}
-    find_zero::T1     = (f, a, b, tol) -> Roots.find_zero(f, (a, b), Roots.Brent(); xatol = tol)
-    quad::T2          = (f, a, b, tol) -> HCubature.hcubature(f, a, b; atol = tol)
-    min_vol::T3       = (tol) -> sqrt(eps(Float64))
+    find_zero::T1 = (f, a, b, tol) -> Roots.find_zero(f, (a, b), Roots.Brent(); xatol = tol)
+    quad::T2 = (f, a, b, tol) -> HCubature.hcubature(f, a, b; atol = tol)
+    min_vol::T3 = (tol) -> sqrt(eps(Float64))
     min_qual::Float64 = 0.1
 end
 
@@ -272,14 +272,14 @@ end
                 @debug "Splitting $U along $dir"
                 Uₗ, Uᵣ = split(U, dir)
                 # compute the restriction of the level-sets on the left and right
-                phi_vec_left  = empty(phi_vec)
+                phi_vec_left = empty(phi_vec)
                 phi_vec_right = empty(phi_vec)
                 for ϕ in phi_vec
                     ϕₗ, ϕᵣ = split(ϕ, U, dir)
                     push!(phi_vec_left, ϕₗ)
                     push!(phi_vec_right, ϕᵣ)
                 end
-                tree_left  = isnothing(tree) ? nothing : TreeNode(Uₗ)
+                tree_left = isnothing(tree) ? nothing : TreeNode(Uₗ)
                 tree_right = isnothing(tree) ? nothing : TreeNode(Uᵣ)
                 isnothing(tree) || (push!(tree.children, (tree_left, 0), (tree_right, 0)))
                 isnothing(logger) || (logger.subdivisions[DIM] += 1)
@@ -417,7 +417,9 @@ function _integrand_eval(
         # HACK: keep only the unique elements in bnds up to ≈ 1e-8 relative tolerance.
         # Avoids cases where we have two zeros that are very close to each other, usually
         # coming from a degenerate root (e.g. x^2 at x = 0 with numerical noise).
+        n_before = length(bnds)
         unique!(x -> round(x; sigdigits = 8), bnds)
+        n_after = length(bnds)
         # compute the integral
         acc = zero(RET_TYPE)
         for i in 1:(length(bnds)-1) # loop over each segment
@@ -460,30 +462,29 @@ function _surface_integrand_eval(
 ) where {N,T,RET_TYPE}
     xl, xu = bounds(U)
     a, b = xl[k], xu[k]
-    f̃ =
-        (x̃) -> begin
-            g = (t) -> phi(insert(x̃, k, t))
-            if N == 1
-                # corner case where we have a "surface" integral in 1D. Arises only when calling
-                # `integrate` with `surface=true` on one-dimensional level-set functions.
-                roots = T[]
-                _find_zeros!(roots, phi, phi_grad, U, config, tol, logger, tree)
-                sum(roots) do root
-                    x = insert(x̃, k, root)
-                    ∇ϕ = phi_grad(x)
-                    return f(x) * norm(∇ϕ) * inv(abs(∇ϕ[k]))
-                end
-            else # guaranteed to have at most one zero
-                if g(a) * g(b) > 0
-                    return zero(RET_TYPE)
-                else
-                    root = config.find_zero(g, a, b, tol)
-                    x = insert(x̃, k, root)
-                    ∇ϕ = phi_grad(x)
-                    return f(x) * norm(∇ϕ) * inv(abs(∇ϕ[k]))
-                end
+    f̃ = (x̃) -> begin
+        g = (t) -> phi(insert(x̃, k, t))
+        if N == 1
+            # corner case where we have a "surface" integral in 1D. Arises only when calling
+            # `integrate` with `surface=true` on one-dimensional level-set functions.
+            roots = T[]
+            _find_zeros!(roots, phi, phi_grad, U, config, tol, logger, tree)
+            sum(roots) do root
+                x = insert(x̃, k, root)
+                ∇ϕ = phi_grad(x)
+                return f(x) * norm(∇ϕ) * inv(abs(∇ϕ[k]))
+            end
+        else # guaranteed to have at most one zero
+            if g(a) * g(b) > 0
+                return zero(RET_TYPE)
+            else
+                root = config.find_zero(g, a, b, tol)
+                x = insert(x̃, k, root)
+                ∇ϕ = phi_grad(x)
+                return f(x) * norm(∇ϕ) * inv(abs(∇ϕ[k]))
             end
         end
+    end
     return f̃
 end
 
@@ -572,9 +573,9 @@ function _find_zeros!(roots, ϕ, ∇ϕ, U::Segment, config, tol, logger, tree)
                 return roots
             end
         else # can't prove monotonicity nor lack of zeros, so split
-            Uₗ, Uᵣ     = split(U, 1)
-            ϕₗ, ϕᵣ     = split(ϕ, U, 1)
-            tree_left  = isnothing(tree) ? nothing : TreeNode(Uₗ)
+            Uₗ, Uᵣ = split(U, 1)
+            ϕₗ, ϕᵣ = split(ϕ, U, 1)
+            tree_left = isnothing(tree) ? nothing : TreeNode(Uₗ)
             tree_right = isnothing(tree) ? nothing : TreeNode(Uᵣ)
             isnothing(tree) || (push!(tree.children, (tree_left, 0), (tree_right, 0)))
             isnothing(logger) || (logger.subdivisions[1] += 1) # one-dimensional subdivision

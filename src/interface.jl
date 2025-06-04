@@ -9,10 +9,24 @@ implementation.
 # implemented
 const ALLOW_DEFAULT_INTERFACE = Ref(true)
 
+"""
+    disable_default_interface()
+
+Throw an error if the default interface is used, to ensure that all methods are implemented
+for a given function type. This is useful for testing purposes.
+"""
 function disable_default_interface()
     return ALLOW_DEFAULT_INTERFACE[] = false
 end
 
+"""
+    enable_default_interface()
+
+Re-enable the default interface, so that the generic `bound`, `gradient`, `project`, and
+`split` methods can be used with functions that do not implement these methods.
+
+See also [`disable_default_interface`](@ref).
+"""
 function enable_default_interface()
     return ALLOW_DEFAULT_INTERFACE[] = true
 end

@@ -19,7 +19,7 @@ Lift all nodes in `root` to the same dimension as `root`.
 """
 function lift_all_dims(root::TreeNode)
     n = ndims(root)
-    for dim in 1:n-1
+    for dim in 1:(n-1)
         lift_dim(root, dim)
     end
     return root
