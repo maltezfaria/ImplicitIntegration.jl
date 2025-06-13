@@ -1,5 +1,6 @@
 [deps]
 Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
+DynamicPolynomials = "7c1d4256-1411-5781-91ec-d7bc3513ac07"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 HCubature = "19dc6840-f33b-545b-b366-655c7e3ffd49"
 ImplicitIntegration = "bc256489-3a69-4a66-afc4-127cc87e6182"

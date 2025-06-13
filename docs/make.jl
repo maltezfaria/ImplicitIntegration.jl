@@ -21,8 +21,18 @@ makedocs(;
         edit_link = "main",
         assets = String[],
     ),
-    pages = ["Home" => "index.md", "Docstrings" => "docstrings.md"],
+    pages = [
+        "Home" => "index.md",
+        "Specializations" => "specializations.md",
+        "Docstrings" => "docstrings.md",
+        "Bibliography" => "bibliography.md",
+    ],
     plugins = [bib],
+    draft = false,
 )
 
-deploydocs(; repo = "github.com/maltezfaria/ImplicitIntegration.jl", devbranch = "main")
+deploydocs(;
+    repo = "github.com/maltezfaria/ImplicitIntegration.jl",
+    devbranch = "main",
+    push_preview = true,
+)

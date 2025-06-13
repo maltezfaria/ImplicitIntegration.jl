@@ -19,9 +19,9 @@ following fields:
     `k` is given by `|∂ₖϕ| / |∇ϕ|`.
 """
 @kwdef struct Config{T1,T2,T3}
-    find_zero::T1     = (f, a, b, tol) -> Roots.find_zero(f, (a, b), Roots.Brent(); xatol = tol)
-    quad::T2          = (f, a, b, tol) -> HCubature.hcubature(f, a, b; atol = tol)
-    min_vol::T3       = (tol) -> sqrt(eps(Float64))
+    find_zero::T1 = (f, a, b, tol) -> Roots.find_zero(f, (a, b), Roots.Brent(); xatol = tol)
+    quad::T2 = (f, a, b, tol) -> HCubature.hcubature(f, a, b; atol = tol)
+    min_vol::T3 = (tol) -> sqrt(eps(Float64))
     min_qual::Float64 = 0.1
 end
 
@@ -168,7 +168,7 @@ function integrate(f, ϕ, lc, hc; kwargs...)
     return integrate(f, ϕ, SVector{N,T}(lc), SVector{N,T}(hc); kwargs...)
 end
 
-function _integrate(
+@noinline function _integrate(
     f,
     phi_vec,
     s_vec,
@@ -195,29 +195,53 @@ function _integrate(
     end
     phi_vec = phi_vec[partial_cell_idxs]
     s_vec = s_vec[partial_cell_idxs]
+    grad_phi_vec = map(gradient, phi_vec)
     # Finished pruning. If we did not return before this point, then the domain is neither
     # empty nor full. Next try to find a good direction to recurse on. We will choose the
     # direction with the largest gradient.
     if DIM == 1 # base case
         f̃ = if S
             @assert length(phi_vec) == 1
-            _surface_integrand_eval(f, phi_vec[1], U, 1, config, RTYPE, tol, logger, tree)
+            _surface_integrand_eval(
+                f,
+                phi_vec[1],
+                grad_phi_vec[1],
+                U,
+                1,
+                config,
+                RTYPE,
+                tol,
+                logger,
+                tree,
+            )
         else
-            _integrand_eval(f, phi_vec, s_vec, U, 1, config, RTYPE, tol, logger, tree)
+            _integrand_eval(
+                f,
+                phi_vec,
+                grad_phi_vec,
+                s_vec,
+                U,
+                1,
+                config,
+                RTYPE,
+                tol,
+                logger,
+                tree,
+            )
         end
         x̃ = SVector{0,T}() # zero-argument vector to evaluate `f̃` (a const.)
         @debug "Reached 1D base case, evaluating integrand at $x̃"
         return f̃(x̃)
     end
     xc = (xl + xu) / 2
-    ∇ϕ₁ = (x) -> gradient(phi_vec[1], x)
+    ∇ϕ₁ = grad_phi_vec[1]
     k = argmax(abs.(∇ϕ₁(xc)))
     # Now check if k is a "good" height direction for all the level-set functions
     s_vec_new = Int[]
     R = Any # type of restriction. TODO: infer the type?
     phi_vec_new = R[]
     for i in eachindex(phi_vec, s_vec)
-        ∇ϕᵢ_bnds = bound_gradient(phi_vec[i], U)
+        ∇ϕᵢ_bnds = bound(grad_phi_vec[i], U)
         den = sum(∇ϕᵢ_bnds) do (lb, ub)
             return max(abs(lb), abs(ub))^2
         end |> sqrt # max over U of |∇ϕᵢ|
@@ -225,7 +249,7 @@ function _integrate(
         qual = den == 0 ? 1.0 : lb * ub > 0 ? min(abs(lb), abs(ub)) / den : 0.0 # |∂ₖϕᵢ| / |∇ϕᵢ|
         if qual > config.min_qual
             # Restrict the level-set function to the box and push it to new list
-            ϕᵢᴸ, ϕᵢᵁ = restrict(phi_vec[i], k, xl[k]), restrict(phi_vec[i], k, xu[k])
+            ϕᵢᴸ, ϕᵢᵁ = project(phi_vec[i], k, xl[k]), project(phi_vec[i], k, xu[k])
             sign_∂ₖ = lb < 0 ? -1 : 1 # sign of ∂ₖϕᵢ
             sᵢᴸ, sᵢᵁ = sgn(sign_∂ₖ, s_vec[i], false, -1), sgn(sign_∂ₖ, s_vec[i], false, 1)
             push!(phi_vec_new, ϕᵢᴸ, ϕᵢᵁ)
@@ -246,15 +270,23 @@ function _integrate(
                 end
             else # split the box
                 @debug "Splitting $U along $dir"
-                Uₗ, Uᵣ     = split(U, dir)
-                tree_left  = isnothing(tree) ? nothing : TreeNode(Uₗ)
+                Uₗ, Uᵣ = split(U, dir)
+                # compute the restriction of the level-sets on the left and right
+                phi_vec_left = empty(phi_vec)
+                phi_vec_right = empty(phi_vec)
+                for ϕ in phi_vec
+                    ϕₗ, ϕᵣ = split(ϕ, U, dir)
+                    push!(phi_vec_left, ϕₗ)
+                    push!(phi_vec_right, ϕᵣ)
+                end
+                tree_left = isnothing(tree) ? nothing : TreeNode(Uₗ)
                 tree_right = isnothing(tree) ? nothing : TreeNode(Uᵣ)
                 isnothing(tree) || (push!(tree.children, (tree_left, 0), (tree_right, 0)))
                 isnothing(logger) || (logger.subdivisions[DIM] += 1)
                 tol /= 2 # FIXME: halving the tolerance is way too much in practice...
                 Iₗ = _integrate(
                     f,
-                    phi_vec,
+                    phi_vec_left,
                     s_vec,
                     Uₗ,
                     config,
@@ -266,7 +298,7 @@ function _integrate(
                 )
                 Iᵣ = _integrate(
                     f,
-                    phi_vec,
+                    phi_vec_right,
                     s_vec,
                     Uᵣ,
                     config,
@@ -288,7 +320,18 @@ function _integrate(
     isnothing(tree) || (push!(tree.children, (subtree, k)))
     if S
         @assert length(phi_vec) == 1
-        f̃ = _surface_integrand_eval(f, phi_vec[1], U, k, config, RTYPE, tol, logger, tree)
+        f̃ = _surface_integrand_eval(
+            f,
+            phi_vec[1],
+            grad_phi_vec[1],
+            U,
+            k,
+            config,
+            RTYPE,
+            tol,
+            logger,
+            tree,
+        )
         return _integrate(
             f̃,
             phi_vec_new,
@@ -302,7 +345,19 @@ function _integrate(
             subtree,
         )
     else
-        f̃ = _integrand_eval(f, phi_vec, s_vec, U, k, config, RTYPE, tol, logger, tree)
+        f̃ = _integrand_eval(
+            f,
+            phi_vec,
+            grad_phi_vec,
+            s_vec,
+            U,
+            k,
+            config,
+            RTYPE,
+            tol,
+            logger,
+            tree,
+        )
         return _integrate(
             f̃,
             phi_vec_new,
@@ -329,6 +384,7 @@ defined as `I(x̃) = {t ∈ [a,b] : sᵢ*ϕᵢ(insert(̃x,k,t) ≥ 0 ∀ (ϕᵢ,
 function _integrand_eval(
     f,
     phi_vec,
+    grad_phi_vec,
     s_vec,
     U::HyperRectangle{N},
     k::Int,
@@ -343,12 +399,12 @@ function _integrand_eval(
     f̃ = (x̃) -> begin
         # compute the connected components
         bnds = [a, b]
-        for ϕᵢ in phi_vec
+        for (ϕᵢ, ∇ϕᵢ) in zip(phi_vec, grad_phi_vec)
             if N == 1
                 # possible several zeros. Use internal `find_zeros` method which
                 # works on the function `ϕᵢ` directly so that it can tap into
-                # the `bound` and `bound_gradient` methods.
-                _find_zeros!(bnds, ϕᵢ, U, config, tol, logger, tree)
+                # the `bound(ϕᵢ)` and `bound(∇ϕᵢ)` methods.
+                _find_zeros!(bnds, ϕᵢ, ∇ϕᵢ, U, config, tol, logger, tree)
             else
                 # we know that g is monotonic since it corresponds to a
                 # height-direction, so at most a single root exists.
@@ -393,6 +449,7 @@ end
 function _surface_integrand_eval(
     f,
     phi,
+    phi_grad,
     U::HyperRectangle{N,T},
     k::Int,
     config,
@@ -409,10 +466,10 @@ function _surface_integrand_eval(
             # corner case where we have a "surface" integral in 1D. Arises only when calling
             # `integrate` with `surface=true` on one-dimensional level-set functions.
             roots = T[]
-            _find_zeros!(roots, phi, U, config, tol, logger, tree)
+            _find_zeros!(roots, phi, phi_grad, U, config, tol, logger, tree)
             sum(roots) do root
                 x = insert(x̃, k, root)
-                ∇ϕ = gradient(phi, x)
+                ∇ϕ = phi_grad(x)
                 return f(x) * norm(∇ϕ) * inv(abs(∇ϕ[k]))
             end
         else # guaranteed to have at most one zero
@@ -421,7 +478,7 @@ function _surface_integrand_eval(
             else
                 root = config.find_zero(g, a, b, tol)
                 x = insert(x̃, k, root)
-                ∇ϕ = gradient(phi, x)
+                ∇ϕ = phi_grad(x)
                 return f(x) * norm(∇ϕ) * inv(abs(∇ϕ[k]))
             end
         end
@@ -483,7 +540,7 @@ end
 Return all zeros of the function `f` in the `Segment` `U`. `f` should be callable as
 `f(x::SVector{1})`.
 """
-function _find_zeros!(roots, ϕ, U::Segment, config, tol, logger, tree)
+function _find_zeros!(roots, ϕ, ∇ϕ, U::Segment, config, tol, logger, tree)
     xl, xu = bounds(U)
     if norm(xu - xl) < config.min_vol(tol)
         # splitting has led to very small boxes, likely due to e.g. degenerate
@@ -503,7 +560,7 @@ function _find_zeros!(roots, ϕ, U::Segment, config, tol, logger, tree)
     if ϕl * ϕu > 0 # no zeros in the interval
         return roots
     else # maybe there are zeros
-        ∇ϕl, ∇ϕu = bound_gradient(ϕ, U) |> first
+        ∇ϕl, ∇ϕu = bound(∇ϕ, U) |> first
         if ∇ϕl * ∇ϕu > 0 # monotonic, so at most one zero
             if ϕ(xl) * ϕ(xu) ≤ 0
                 g = (t) -> ϕ(SVector(t))
@@ -514,13 +571,14 @@ function _find_zeros!(roots, ϕ, U::Segment, config, tol, logger, tree)
                 return roots
             end
         else # can't prove monotonicity nor lack of zeros, so split
-            U1, U2     = split(U, 1)
-            tree_left  = isnothing(tree) ? nothing : TreeNode(U1)
-            tree_right = isnothing(tree) ? nothing : TreeNode(U2)
+            Uₗ, Uᵣ = split(U, 1)
+            ϕₗ, ϕᵣ = split(ϕ, U, 1)
+            tree_left = isnothing(tree) ? nothing : TreeNode(Uₗ)
+            tree_right = isnothing(tree) ? nothing : TreeNode(Uᵣ)
             isnothing(tree) || (push!(tree.children, (tree_left, 0), (tree_right, 0)))
             isnothing(logger) || (logger.subdivisions[1] += 1) # one-dimensional subdivision
-            _find_zeros!(roots, ϕ, U1, config, tol, logger, tree)
-            _find_zeros!(roots, ϕ, U2, config, tol, logger, tree)
+            _find_zeros!(roots, ϕₗ, gradient(ϕₗ), Uₗ, config, tol, logger, tree)
+            _find_zeros!(roots, ϕᵣ, gradient(ϕᵣ), Uᵣ, config, tol, logger, tree)
             return roots
         end
     end
