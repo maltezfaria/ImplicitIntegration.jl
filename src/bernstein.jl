@@ -248,6 +248,7 @@ coefficients.
 # Examples
 
 ```jldoctest
+using StaticArrays
 f = (x) -> (1 - x[1])^2 + x[1]^4 + x[2]^5 * x[1]^3
 lb = SVector(0.1, -0.3)
 ub = SVector(1.2, 1.7)

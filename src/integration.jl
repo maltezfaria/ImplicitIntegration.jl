@@ -460,30 +460,29 @@ function _surface_integrand_eval(
 ) where {N,T,RET_TYPE}
     xl, xu = bounds(U)
     a, b = xl[k], xu[k]
-    f̃ =
-        (x̃) -> begin
-            g = (t) -> phi(insert(x̃, k, t))
-            if N == 1
-                # corner case where we have a "surface" integral in 1D. Arises only when calling
-                # `integrate` with `surface=true` on one-dimensional level-set functions.
-                roots = T[]
-                _find_zeros!(roots, phi, phi_grad, U, config, tol, logger, tree)
-                sum(roots) do root
-                    x = insert(x̃, k, root)
-                    ∇ϕ = phi_grad(x)
-                    return f(x) * norm(∇ϕ) * inv(abs(∇ϕ[k]))
-                end
-            else # guaranteed to have at most one zero
-                if g(a) * g(b) > 0
-                    return zero(RET_TYPE)
-                else
-                    root = config.find_zero(g, a, b, tol)
-                    x = insert(x̃, k, root)
-                    ∇ϕ = phi_grad(x)
-                    return f(x) * norm(∇ϕ) * inv(abs(∇ϕ[k]))
-                end
+    f̃ = (x̃) -> begin
+        g = (t) -> phi(insert(x̃, k, t))
+        if N == 1
+            # corner case where we have a "surface" integral in 1D. Arises only when calling
+            # `integrate` with `surface=true` on one-dimensional level-set functions.
+            roots = T[]
+            _find_zeros!(roots, phi, phi_grad, U, config, tol, logger, tree)
+            sum(roots) do root
+                x = insert(x̃, k, root)
+                ∇ϕ = phi_grad(x)
+                return f(x) * norm(∇ϕ) * inv(abs(∇ϕ[k]))
+            end
+        else # guaranteed to have at most one zero
+            if g(a) * g(b) > 0
+                return zero(RET_TYPE)
+            else
+                root = config.find_zero(g, a, b, tol)
+                x = insert(x̃, k, root)
+                ∇ϕ = phi_grad(x)
+                return f(x) * norm(∇ϕ) * inv(abs(∇ϕ[k]))
             end
         end
+    end
     return f̃
 end
 

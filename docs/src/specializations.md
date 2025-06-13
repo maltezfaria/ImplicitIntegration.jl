@@ -36,8 +36,9 @@ polynomials.
 To implement specialized bounds for a specific function type, you need to overload the
 following methods:
 
-- [`bound(f::MyType, lc, hc) --> (fmin, fmax)`](@ref ImplicitIntegration.bound): Compute bounds for the
-  function `f` over the hyperrectangle defined by lower corner `lc` and upper corner `hc`.
+- [`bound(f::MyType, lc, hc) --> (fmin, fmax)`](@ref ImplicitIntegration.bound): Compute
+  bounds for the function `f` over the hyperrectangle defined by lower corner `lc` and upper
+  corner `hc`.
 - [`gradient(f::MyType) --> ∇f`](@ref ImplicitIntegration.gradient): Compute the gradient of
   the function `f` as a function. The returned object `∇f` should support evaluation on the
   form `∇f(x)` where `x` is a point in the domain of `f`, and `bound(∇f, lc, hc)`.
@@ -45,17 +46,18 @@ following methods:
   `k`-th coordinate using the value `v`. The returned object should support `bound`,
   `gradient`, and `project` methods, allowing it to be used in the same way as the original
   function.
-- [`split(f, lb, ub, dir) --> fₗ, fᵤ`](@ref ImplicitIntegration.split): Split the  function `f` along
-  the specified direction `dir` into two parts, one for the lower half and one for the upper
-  half of the hyperrectangle defined by `lb` and `ub`. The returned objects should also
-  support `bound`, `gradient`, and `project` methods.
+- [`split(f, lb, ub, dir) --> fₗ, fᵤ`](@ref ImplicitIntegration.split): Split the function
+  `f` along the specified direction `dir` into two parts, one for the lower half and one for
+  the upper half of the hyperrectangle defined by `lb` and `ub`. The returned objects should
+  also support `bound`, `gradient`, and `project` methods.
 
 !!! tip "Disabling default implementations"
     When implementing the interface for a specific function type, you may want to disable
     the default implementations provided by `ImplicitIntegration` to make sure you have
     correctly overloaded the proper methods. You can do this by calling
-    [`disable_default_interface()`](@ref ImplicitIntegration.disable_default_interface). To re-enable the default interface, use
-    [`enable_default_interface()`](@ref ImplicitIntegration.enable_default_interface).
+    [`disable_default_interface()`](@ref ImplicitIntegration.disable_default_interface). To
+    re-enable the default interface, use [`enable_default_interface()`](@ref
+    ImplicitIntegration.enable_default_interface).
 
 ## [Bernstein polynomials](@id bernstein-polynomials)
 
@@ -70,11 +72,11 @@ There are several ways to construct a `BernsteinPolynomial` object. The most dir
 to directly provide an array containing the Bernstein coefficients:
 
 ```@example bernstein
-using ImplicitIntegration: BernsteinPolynomial
+using ImplicitIntegration
 lb = (-1.0, -1.0)
 ub = (1.0, 1.0)
 c  = rand(3,3) # Bernstein coefficients
-p = BernsteinPolynomial(c, lb, ub)
+p = ImplicitIntegration.BernsteinPolynomial(c, lb, ub)
 ```
 
 The polynomial can now be evaluated at a point `x`
@@ -90,9 +92,47 @@ or bounded over its domain:
 ImplicitIntegration.bound(p)
 ```
 
-The package automatically detects when the implicit function is a polynomial (specifically, when using types from the `DynamicPolynomials.jl` package) and applies the Bernstein form for bounds computation. This specialization provides both tighter value bounds and more accurate gradient information, which is crucial for the Newton-based refinement in our quadrature algorithm.
+Another way to create a `BernsteinPolynomial` is to interpolate a function over the grid
+points using [`berninterp`](@ref), as illustrated below:
 
-The following example demonstrates the advantage of using Bernstein polynomial bounds over the default interval arithmetic bounds:
+```@example bernstein
+lb = (-1.0, -1.0)
+ub = (1.0, 1.0)
+npts = (4,4)
+interp_pts = ImplicitIntegration.uniform_points(npts, lb, ub)
+f = x -> x[1]^2 + x[2]^2 - 1.0 # implicit function
+p = ImplicitIntegration.berninterp(f.(interp_pts), lb, ub)
+```
+
+Since in this example `f` is itself a polynomial, and we interpolate it using a polynomial
+of higher degree, the interpolant should be exact (up to rounding errors):
+
+```@example bernstein
+using GLMakie
+@assert all(abs(p((x,y)) - f((x,y))) < 1e-14 for x in lb[1]:0.1:ub[1], y in lb[2]:0.1:ub[2]) # hide
+xx = lb[1]:0.05:ub[1]
+yy = lb[2]:0.05:ub[2]
+vals = [p((x,y)) - f((x,y)) for x in lb[1]:0.1:ub[1], y in lb[2]:0.1:ub[2]]
+fig, ax, hm = heatmap(xx, yy, vals)
+Colorbar(fig[1,2], hm; label = "|p(x) - f(x)|", labelrotation = 0)
+current_figure() # hide
+```
+
+!!! warning "Increasing the interpolation degree" The `berninterp` function illustrated
+    above performs polynomial interpolating using a Bernstein basis on a uniform grid. As is
+    well known, the Lebesgue constant for such interpolants grows exponentially with the
+    polynomial degree. In this package you usually want to use the `berninterp` function
+    with a fixed degree, and decrease *mesh size* parameter to obtain convergence. An
+    alternative, not yet implemented, is to interpolate the function on a Chebyshev grid,
+    and then convert the resulting Chebyshev polynomial into the Bernstein form.
+
+Finally, `ImplicitIntegration` can automatically handle polynomials constructed using the
+`DynamicPolynomials.jl` package. When you use types from this package, the implicit function
+is automatically converted to a `BernsteinPolynomial` for bounds computation. This allows
+for efficient integration of polynomial implicit functions without requiring manual
+conversion to the Bernstein form. This specialization provides tighter bounds for the
+function value and its gradient, helping the recursive subdivision algorithm to stop
+earlier. The following example illustrates this difference in practice:
 
 ```@example polynomials
 using ImplicitIntegration, StaticArrays
@@ -116,6 +156,9 @@ plot!(ax2, logger_poly)
 current_figure() # hide
 ```
 
-The figure above illustrates the difference between using default bounds (based on interval arithmetic) and Bernstein polynomial bounds for quadrature generation. The right panel shows how using Bernstein polynomial bounds results in more efficient and accurate quadrature points (red dots) around the zero level set of the implicit function. Note the significant reduction in the number of evaluated boxes and the tighter approximation of the curve.
-
-For polynomial implicit functions, the Bernstein form automatically provides derivative information, which is crucial for Newton-based refinement steps in our quadrature algorithm. This combination of tight bounds and derivative information makes Bernstein polynomials particularly effective for implicit surface integration.
+The figure above illustrates the difference between using default bounds (based on interval
+arithmetic) and Bernstein polynomial bounds for quadrature generation (triggered by passing
+a `DynamicPolynomial.Poly` object to `quadgen`). The right panel shows how using Bernstein
+polynomial bounds results in more efficient and accurate quadrature points (red dots) around
+the zero level set of the implicit function. Note the significant reduction in the number of
+evaluated boxes and the tighter approximation of the curve.
