@@ -118,13 +118,14 @@ Colorbar(fig[1,2], hm; label = "|p(x) - f(x)|", labelrotation = 0)
 current_figure() # hide
 ```
 
-!!! warning "Increasing the interpolation degree" The `berninterp` function illustrated
-    above performs polynomial interpolating using a Bernstein basis on a uniform grid. As is
-    well known, the Lebesgue constant for such interpolants grows exponentially with the
-    polynomial degree. In this package you usually want to use the `berninterp` function
-    with a fixed degree, and decrease *mesh size* parameter to obtain convergence. An
-    alternative, not yet implemented, is to interpolate the function on a Chebyshev grid,
-    and then convert the resulting Chebyshev polynomial into the Bernstein form.
+!!! warning "Increasing the interpolation degree"
+    The `berninterp` function illustrated above performs polynomial interpolating using a
+    Bernstein basis on a uniform grid. As is well known, the Lebesgue constant for such
+    interpolants grows exponentially with the polynomial degree. In this package you usually
+    want to use the `berninterp` function with a fixed degree, and decrease *mesh size*
+    parameter to obtain convergence. An alternative, not yet implemented, is to interpolate
+    the function on a Chebyshev grid, and then convert the resulting Chebyshev polynomial
+    into the Bernstein form.
 
 Finally, `ImplicitIntegration` can automatically handle polynomials constructed using the
 `DynamicPolynomials.jl` package. When you use types from this package, the implicit function
