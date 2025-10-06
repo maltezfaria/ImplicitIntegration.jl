@@ -486,16 +486,6 @@ function split(p::BernsteinPolynomial, lb, ub, dir)
     end
 end
 
-"""
-    bernstein_interp(vals, pts, lb, ub)
-
-Construct a Bernstein polynomial on `(lb[1], ub[1]) × … × (lb[N], ub[N])` that interpolates
-the values `vals` at the points `pts`. Note that `vals` and `pts`...
-"""
-function bernstein_interp(vals, pts, lb, ub, degree = size(vals) .- 1)
-    return V = vandermonde_matrix(degree, pts, lb, ub)
-end
-
 function vandermonde_matrix(degree, pts, lb, ub)
     c = zeros(degree .+ 1)
     p = BernsteinPolynomial(c, lb, ub)
