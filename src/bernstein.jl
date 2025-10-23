@@ -81,7 +81,7 @@ end
 end
 
 """
-    derivative(p::BernsteinPolynomial, d::Int)g
+    derivative(p::BernsteinPolynomial, d::Int)
 
 Compute the derivative along dimension `d` of the Bernstein polynomial `p`, returning a new
 `BernsteinPolynomial` of the same dimension `N`.

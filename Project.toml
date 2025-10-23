@@ -1,7 +1,7 @@
 name = "ImplicitIntegration"
 uuid = "bc256489-3a69-4a66-afc4-127cc87e6182"
 authors = ["Luiz M. Faria and Antoine Levitt"]
-version = "0.2.2"
+version = "0.2.1"
 
 [deps]
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
