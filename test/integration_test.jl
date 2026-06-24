@@ -116,9 +116,9 @@ end
     Q = quadgen(ϕ, a, b; order = 20, surface = true)[1]
     @test integrate(x -> 1.0, Q) ≈ 2 * π / 4
 
-    # FIXME: type-inference fails on 1.10, but passes o 1.12. Maybe related to recursive calls in `integrate`?
-    @test_broken @inferred integrate(x -> 1.0, ϕ, a, b)
-    @test_broken @inferred quadgen(ϕ, a, b; order)
+    # Type-inference (issue #1): `integrate`/`quadgen` are now type-stable.
+    @test (@inferred integrate(x -> 1.0, ϕ, a, b)) isa NamedTuple
+    @test (@inferred quadgen(ϕ, a, b; order)) isa NamedTuple
 end
 
 @testset "Volume integrals" begin
@@ -163,9 +163,9 @@ end
     Q = quadgen(ϕ, a, b .+ 0.1; order = 20, surface = true)[1]
     @test integrate(x -> 1.0, Q) ≈ 4 * π / 8
 
-    # FIXME: type-inference fails. Maybe related to recursive calls in `integrate`?
-    @test_broken @inferred integrate(x -> 1.0, ϕ, a, b .+ 0.1)
-    @test_broken @inferred quadgen(ϕ, a, b .+ 0.1; order)
+    # Type-inference (issue #1): `integrate`/`quadgen` are now type-stable.
+    @test (@inferred integrate(x -> 1.0, ϕ, a, b .+ 0.1)) isa NamedTuple
+    @test (@inferred quadgen(ϕ, a, b .+ 0.1; order)) isa NamedTuple
 end
 
 @testset "Logging" begin

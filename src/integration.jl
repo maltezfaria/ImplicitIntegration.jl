@@ -141,7 +141,7 @@ true
 
 ```
 """
-function integrate(
+Base.@constprop :aggressive function integrate(
     f,
     ϕ,
     lc::SVector{N,T},
@@ -152,11 +152,27 @@ function integrate(
     loginfo = false,
 ) where {N,T}
     U = HyperRectangle(lc, hc)
-    logger = loginfo ? LogInfo(U) : nothing
-    tree = loginfo ? logger.tree : nothing
     RET_TYPE = typeof(f(lc) * one(T) + f(hc) * one(T)) # a guess for the return type...
     s = surface ? 0 : -1
-    val = _integrate(f, [ϕ], [s], U, config, RET_TYPE, Val(surface), tol, logger, tree)
+    # Route `loginfo` through a `Val` barrier so that the type of `logger` (and
+    # hence of the returned named tuple) is inferable; see issue #1.
+    return _integrate_top(f, ϕ, s, U, config, RET_TYPE, Val(surface), tol, Val(loginfo))
+end
+
+function _integrate_top(
+    f,
+    ϕ,
+    s,
+    U,
+    config,
+    ::Type{RET_TYPE},
+    ::Val{S},
+    tol,
+    ::Val{LOG},
+) where {RET_TYPE,S,LOG}
+    logger = LOG ? LogInfo(U) : nothing
+    tree = LOG ? logger.tree : nothing
+    val = _integrate(f, [ϕ], [s], U, config, RET_TYPE, Val(S), tol, logger, tree)
     return (; val, logger)
 end
 
@@ -179,7 +195,7 @@ end
     tol,
     logger,
     tree,
-) where {DIM,T,RTYPE,S}
+)::RTYPE where {DIM,T,RTYPE,S}
     xl, xu = bounds(U)
     # Start by pruning phi_vec...
     partial_cell_idxs = Int[]
