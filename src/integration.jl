@@ -437,9 +437,15 @@ function _integrand_eval(
 ) where {N,RET_TYPE}
     xl, xu = bounds(U)
     a, b = xl[k], xu[k]
+    # Reused across the (sequential) evaluations of `f̃` within a single `integrate`
+    # call, to avoid allocating the segment-boundary buffer on every node. This is safe
+    # for the intended cell-level parallelism (each cell builds its own closures).
+    bnds = [a, b]
     f̃ = (x̃) -> begin
-        # compute the connected components
-        bnds = [a, b]
+        # compute the connected components (reset the reused buffer to [a, b])
+        resize!(bnds, 2)
+        bnds[1] = a
+        bnds[2] = b
         for (ϕᵢ, ∇ϕᵢ) in zip(phi_vec, grad_phi_vec)
             if N == 1
                 # possible several zeros. Use internal `find_zeros` method which
