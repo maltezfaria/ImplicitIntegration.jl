@@ -203,20 +203,35 @@ end
     tree,
 )::RTYPE where {DIM,T,RTYPE,S}
     xl, xu = bounds(U)
-    # Start by pruning phi_vec...
-    partial_cell_idxs = Int[]
+    # Classify each level-set, bailing out on the first empty cell. Track only the partial
+    # count and whether any full cell is present, so the common all-partial case avoids
+    # allocating an index vector and copying `phi_vec`/`s_vec` (they are already concretely
+    # typed, so the conditional reassignment below does not widen inference).
+    npartial = 0
+    has_full = false
     for i in eachindex(phi_vec, s_vec)
         c = cell_type(phi_vec[i], s_vec[i], U, S)
         c == empty_cell && return zero(RTYPE)
-        c == partial_cell && push!(partial_cell_idxs, i)
+        c == partial_cell ? (npartial += 1) : (has_full = true)
     end
-    if length(partial_cell_idxs) == 0 # full cell
+    if npartial == 0 # full cell (no empties, no partials)
         isnothing(logger) || (logger.fullcells += 1)
         val, _ = config.quad(f, xl, xu, tol)
         return val
     end
-    phi_vec = phi_vec[partial_cell_idxs]
-    s_vec = s_vec[partial_cell_idxs]
+    # Drop the full level-sets when present, keeping only the partial ones. Use a single
+    # (unconditional) assignment via an `if`-expression: `phi_vec`/`s_vec` are captured by the
+    # integrand closures below, and a *conditional* reassignment of a captured variable would
+    # box it. The common case (all partial) reuses the inputs with no copy.
+    phi_vec, s_vec = if has_full
+        keep = Int[]
+        for i in eachindex(phi_vec, s_vec)
+            cell_type(phi_vec[i], s_vec[i], U, S) == partial_cell && push!(keep, i)
+        end
+        (phi_vec[keep], s_vec[keep])
+    else
+        (phi_vec, s_vec)
+    end
     grad_phi_vec = map(gradient, phi_vec)
     # Finished pruning. If we did not return before this point, then the domain is neither
     # empty nor full. Next try to find a good direction to recurse on. We will choose the
