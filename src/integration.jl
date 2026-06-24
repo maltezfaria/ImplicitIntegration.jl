@@ -254,7 +254,12 @@ end
     k = argmax(abs.(∇ϕ₁(xc)))
     # Now check if k is a "good" height direction for all the level-set functions
     s_vec_new = Int[]
-    R = Any # type of restriction. TODO: infer the type?
+    # Infer the element type of the restricted level-sets so that `phi_vec_new` stays
+    # concretely typed (instead of `Vector{Any}`). When `phi_vec` is concretely typed all its
+    # entries `project` to the same type; otherwise fall back to `Any`. Keeping this concrete
+    # avoids dynamic dispatch on the restricted level-sets in the recursion (which otherwise
+    # forces their `Interval`/`Dual` bound arguments to escape to the heap).
+    R = isconcretetype(eltype(phi_vec)) ? typeof(project(phi_vec[1], k, xl[k])) : Any
     phi_vec_new = R[]
     for i in eachindex(phi_vec, s_vec)
         ∇ϕᵢ_bnds = bound(grad_phi_vec[i], U)
