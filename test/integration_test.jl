@@ -118,6 +118,7 @@ end
 
     # Type-inference (issue #1): `integrate`/`quadgen` are now type-stable.
     @test (@inferred integrate(x -> 1.0, ϕ, a, b)) isa NamedTuple
+    @test (@inferred integrate(x -> 1.0, ϕ, a, b; surface = true)) isa NamedTuple
     @test (@inferred quadgen(ϕ, a, b; order)) isa NamedTuple
 end
 
@@ -165,6 +166,7 @@ end
 
     # Type-inference (issue #1): `integrate`/`quadgen` are now type-stable.
     @test (@inferred integrate(x -> 1.0, ϕ, a, b .+ 0.1)) isa NamedTuple
+    @test (@inferred integrate(x -> 1.0, ϕ, a, b .+ 0.1; surface = true)) isa NamedTuple
     @test (@inferred quadgen(ϕ, a, b .+ 0.1; order)) isa NamedTuple
 end
 

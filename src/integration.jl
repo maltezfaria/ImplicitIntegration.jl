@@ -438,14 +438,14 @@ function _integrand_eval(
     phi_vec,
     grad_phi_vec,
     s_vec,
-    U::HyperRectangle{N},
+    U::HyperRectangle{N,T},
     k::Int,
     config,
     ::Type{RET_TYPE},
     tol,
     logger,
     tree,
-) where {N,RET_TYPE}
+) where {N,T,RET_TYPE}
     xl, xu = bounds(U)
     a, b = xl[k], xu[k]
     # Reused across the (sequential) evaluations of `f̃` within a single `integrate`
@@ -468,7 +468,7 @@ function _integrand_eval(
                 # height-direction, so at most a single root exists.
                 g = (t) -> ϕᵢ(insert(x̃, k, t))
                 g(a) * g(b) > 0 && continue
-                push!(bnds, config.find_zero(g, a, b, tol))
+                push!(bnds, config.find_zero(g, a, b, tol)::T)
             end
         end
         sort!(bnds)
@@ -527,16 +527,21 @@ function _surface_integrand_eval(
             # `integrate` with `surface=true` on one-dimensional level-set functions.
             roots = T[]
             _find_zeros!(roots, phi, phi_grad, U, config, tol, logger, tree)
+            # Use distinct names from the `else` branch below: this `do` block is a closure,
+            # so sharing `x`/`∇ϕ` with the outer scope would box them (and lose inference).
             sum(roots) do root
-                x = insert(x̃, k, root)
-                ∇ϕ = phi_grad(x)
-                return f(x) * norm(∇ϕ) * inv(abs(∇ϕ[k]))
+                xr = insert(x̃, k, root)
+                ∇ϕr = phi_grad(xr)
+                return f(xr) * norm(∇ϕr) * inv(abs(∇ϕr[k]))
             end
         else # guaranteed to have at most one zero
             if g(a) * g(b) > 0
                 return zero(RET_TYPE)
             else
-                root = config.find_zero(g, a, b, tol)
+                # `config.find_zero` is not type-stable through the `Config` field; the root
+                # is a coordinate of type `T`, so assert it to keep the integrand inferable
+                # (otherwise the whole surface integrand is `Any` and the quadrature boxes).
+                root = config.find_zero(g, a, b, tol)::T
                 x = insert(x̃, k, root)
                 ∇ϕ = phi_grad(x)
                 return f(x) * norm(∇ϕ) * inv(abs(∇ϕ[k]))
