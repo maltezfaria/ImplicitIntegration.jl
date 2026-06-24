@@ -78,7 +78,11 @@ function project(f, k, v)
     ALLOW_DEFAULT_INTERFACE[] || error(
         "Default interface is disabled, please implement the `project` method for your function type.",
     )
-    return (x) -> f(insert(x, k, v))
+    # Convert `v` to `eltype(x)` so that `insert` produces a homogeneous `SVector`. Otherwise
+    # mixing the captured `Float64` `v` with an `Interval`/`Dual`-valued `x` builds a
+    # heterogeneous tuple that gets promoted and escapes to the heap (a large share of the
+    # allocations when bounding projected level-sets deep in the recursion).
+    return (x) -> f(insert(x, k, convert(eltype(x), v)))
 end
 
 """
