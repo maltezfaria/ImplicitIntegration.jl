@@ -30,12 +30,17 @@ end
 
 function (quad::GaussLegendre{N})(f, a::Number, b::Number) where {N}
     h = b - a
-    acc = sum(zip(quad.nodes, quad.weights)) do (x̂, ŵ)
-        x = a + h * x̂
-        return f(x) * ŵ
+    nodes, weights = quad.nodes, quad.weights
+    @inbounds acc = f(a + h * nodes[1]) * weights[1]
+    @inbounds for i in 2:N
+        acc += f(a + h * nodes[i]) * weights[i]
     end
     return h * acc
 end
+
+# Default rule used by `Config().quad1d` for the 1D base case. Built once (computing the
+# nodes/weights via `QuadGK.gauss` is comparatively expensive) and shared across all calls.
+const DEFAULT_QUAD1D = GaussLegendre(; order = 40)
 
 """
     TensorQuadrature(quad1d)
@@ -169,11 +174,12 @@ true
 """
 function quadgen(ϕ, lc::SVector{N,T}, hc::SVector{N,T}; order, kwargs...) where {N,T}
     if !haskey(kwargs, :config)
-        quad1d = GaussLegendre(; order = order)
-        quadnd = TensorQuadrature(quad1d)
+        gl1d = GaussLegendre(; order = order)
+        quadnd = TensorQuadrature(gl1d)
         config = Config(;
             find_zero = (f, a, b, tol) -> Roots.find_zero(f, (a, b), Roots.Brent()),
             quad = (f, a, b, tol) -> (quadnd(f, a, b), Inf),
+            quad1d = (g, a, b, tol) -> (gl1d(g, a, b), Inf),
         )
     else
         isnothing(order) || @warn "Ignoring `order` parameter since `config` is provided."

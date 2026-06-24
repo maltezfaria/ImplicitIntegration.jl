@@ -10,7 +10,12 @@ following fields:
   - `quad`: a function with signature `quad(f, a, b, tol) --> (I,E)` such that `I`
     approximates the integral of `f` over `[a,b]` and `E` is the estimated error. `a` and `b`
     `Tuple`(s)/`SVector`(s) specifying the lower and upper bounds of the integration domain,
-    and `tol` is the desired absolute tolerance.
+    and `tol` is the desired absolute tolerance. This is used to integrate over *full* cells.
+  - `quad1d`: a function with signature `quad1d(g, a, b, tol) --> (I,E)` used to integrate the
+    scalar function `g(t::Real)` over the segment `[a, b]` (scalars) at the base case of the
+    recursion. Within each segment the integrand is smooth, so a fixed-order rule is usually
+    both accurate and much cheaper than the default adaptive `quad`. Defaults to a
+    [`GaussLegendre`](@ref) rule of order 40.
   - `min_vol`: a function with signature `(tol) --> Float64` used to specify the volume of
     boxes below which the spatial subdivision stops.
     low-order method is used to approximate the integral.
@@ -18,11 +23,12 @@ following fields:
     height direction to be considered valid for recursion. The quality factor for a direction
     `k` is given by `|∂ₖϕ| / |∇ϕ|`.
 """
-@kwdef struct Config{T1,T2,T3}
+@kwdef struct Config{T1,T2,T3,T4}
     find_zero::T1 = (f, a, b, tol) -> Roots.find_zero(f, (a, b), Roots.Brent(); xatol = tol)
     quad::T2 = (f, a, b, tol) -> HCubature.hcubature(f, a, b; atol = tol)
     min_vol::T3 = (tol) -> sqrt(eps(Float64))
     min_qual::Float64 = 0.1
+    quad1d::T4 = (g, a, b, tol) -> (DEFAULT_QUAD1D(g, a, b), zero(typeof(a - b)))
 end
 
 """
@@ -489,7 +495,7 @@ function _integrand_eval(
             end
             skip && continue
             # add the contribution of the segment by performing a 1D quadrature.
-            val, _ = config.quad(SVector(rᵢ), SVector(rᵢ₊₁), tol) do (t,)
+            val, _ = config.quad1d(rᵢ, rᵢ₊₁, tol) do t
                 x = insert(x̃, k, t)
                 return f(x)
             end

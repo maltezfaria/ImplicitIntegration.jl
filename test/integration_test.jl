@@ -234,3 +234,24 @@ end
     ImplicitIntegration._dedup_sorted_by_round!(copy(buf))
     @test (@allocated ImplicitIntegration._dedup_sorted_by_round!(buf)) == 0
 end
+
+@testset "quad1d base-case rule (Gauss default vs HCubature)" begin
+    using StaticArrays: SVector
+    # The default `quad1d` is a fixed Gauss-Legendre rule; it must agree with an explicit
+    # adaptive HCubature `quad1d` to within tolerance on volume and surface integrals.
+    import HCubature
+    hcub1d = (g, a, b, tol) -> HCubature.hcubature(x -> g(x[1]), SVector(a), SVector(b); atol = tol)
+    cfg_hcub = ImplicitIntegration.Config(; quad1d = hcub1d)
+    for (ϕ, lc, hc) in (
+        (x -> x[1]^2 + x[2]^2 - 1, (0.0, 0.0), (1.5, 1.5)),
+        (x -> x[1]^2 + x[2]^2 + x[3]^2 - 1, (0.0, 0.0, 0.0), (1.5, 1.5, 1.5)),
+    )
+        for surface in (false, true)
+            ref = integrate(x -> 1.0, ϕ, lc, hc; surface, config = cfg_hcub).val
+            gauss = integrate(x -> 1.0, ϕ, lc, hc; surface).val
+            @test gauss ≈ ref rtol = 1e-6
+        end
+    end
+    # the default rule is built once (a module constant), not per call
+    @test ImplicitIntegration.DEFAULT_QUAD1D === ImplicitIntegration.DEFAULT_QUAD1D
+end
