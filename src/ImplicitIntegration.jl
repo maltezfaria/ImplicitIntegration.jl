@@ -14,8 +14,9 @@ include("treenode.jl")
 include("interface.jl")
 include("integration.jl")
 include("quadgen.jl")
+include("threaded.jl")
 include("bernstein.jl")
 
-export integrate, quadgen
+export integrate, integrate_threaded, quadgen
 
 end # module
