@@ -389,6 +389,31 @@ end
     end
 end
 
+"""
+    _dedup_sorted_by_round!(bnds; sigdigits = 8)
+
+In-place removal of consecutive elements of the already-sorted vector `bnds` that
+agree once rounded to `sigdigits` significant digits, keeping the first of each run.
+Equivalent to `unique!(x -> round(x; sigdigits), bnds)` for sorted input, but allocation
+free (the `unique!(f, v)` overload builds a `Dict`).
+"""
+function _dedup_sorted_by_round!(bnds; sigdigits = 8)
+    n = length(bnds)
+    n ≤ 1 && return bnds
+    w = 1
+    prev = round(bnds[1]; sigdigits)
+    @inbounds for i in 2:n
+        r = round(bnds[i]; sigdigits)
+        if r != prev
+            w += 1
+            bnds[w] = bnds[i]
+            prev = r
+        end
+    end
+    resize!(bnds, w)
+    return bnds
+end
+
 ## Algorithm 1 of Saye 2015
 """
     _integrand_eval(f, phi_vec, s_vec, U, k, config, ::Type{RET_TYPE}, tol, logger)
@@ -433,7 +458,9 @@ function _integrand_eval(
         # HACK: keep only the unique elements in bnds up to ≈ 1e-8 relative tolerance.
         # Avoids cases where we have two zeros that are very close to each other, usually
         # coming from a degenerate root (e.g. x^2 at x = 0 with numerical noise).
-        unique!(x -> round(x; sigdigits = 8), bnds)
+        # `bnds` is sorted and `round` is monotonic, so duplicates (in rounded value) are
+        # adjacent; dedup in place to avoid the `Dict` allocated by `unique!(f, ::Vector)`.
+        _dedup_sorted_by_round!(bnds)
         # compute the integral
         acc = zero(RET_TYPE)
         for i in 1:(length(bnds)-1) # loop over each segment

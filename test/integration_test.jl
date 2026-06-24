@@ -216,3 +216,21 @@ end
     @test_throws ErrorException ImplicitIntegration.split(x -> x[1], (0.0,), (1.0,), 1)
     ImplicitIntegration.enable_default_interface()
 end
+
+@testset "_dedup_sorted_by_round! (alloc-free, matches unique!)" begin
+    for v0 in (
+        [0.0, 1.0],
+        [0.1, 0.1 + 1e-12, 0.5, 0.5, 0.9],
+        [0.30000001, 0.30000002, 0.7],
+        Float64[],
+        [3.0],
+    )
+        v = sort(v0)
+        ref = unique(x -> round(x; sigdigits = 8), v)
+        @test ImplicitIntegration._dedup_sorted_by_round!(copy(v)) == ref
+    end
+    # allocation-free on a warmed call (no Dict, unlike `unique!(f, v)`)
+    buf = sort(rand(50))
+    ImplicitIntegration._dedup_sorted_by_round!(copy(buf))
+    @test (@allocated ImplicitIntegration._dedup_sorted_by_round!(buf)) == 0
+end
