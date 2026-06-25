@@ -342,7 +342,7 @@ defined as `I(x̃) = {t ∈ [a,b] : sᵢ*ϕᵢ(insert(̃x,k,t) ≥ 0 ∀ (ϕᵢ,
 """
 function _integrand_eval(
     f,
-    phi_vec,
+    phi_vec::SVector{NL},
     grad_phi_vec,
     s_vec,
     U::HyperRectangle{N,T},
@@ -352,65 +352,58 @@ function _integrand_eval(
     tol,
     logger,
     tree,
-) where {N,T,RET_TYPE}
+) where {NL,N,T,RET_TYPE}
     xl, xu = bounds(U)
     a, b = xl[k], xu[k]
-    # Reused across the (sequential) evaluations of `f̃` within a single `integrate`
-    # call, to avoid allocating the segment-boundary buffer on every node. This is safe
-    # for the intended cell-level parallelism (each cell builds its own closures).
-    bnds = [a, b]
     f̃ = (x̃) -> begin
-        # compute the connected components (reset the reused buffer to [a, b])
-        resize!(bnds, 2)
-        bnds[1] = a
-        bnds[2] = b
-        for (ϕᵢ, ∇ϕᵢ) in zip(phi_vec, grad_phi_vec)
-            if N == 1
-                # possible several zeros. Use internal `find_zeros` method which
-                # works on the function `ϕᵢ` directly so that it can tap into
-                # the `bound(ϕᵢ)` and `bound(∇ϕᵢ)` methods.
-                _find_zeros!(bnds, ϕᵢ, ∇ϕᵢ, U, config, tol, logger, tree)
-            else
-                # we know that g is monotonic since it corresponds to a
-                # height-direction, so at most a single root exists.
-                g = (t) -> ϕᵢ(insert(x̃, k, t))
-                g(a) * g(b) > 0 && continue
-                push!(bnds, config.find_zero(g, a, b, tol)::T)
-            end
-        end
-        sort!(bnds)
-        # HACK: keep only the unique elements in bnds up to ≈ 1e-8 relative tolerance.
-        # Avoids cases where we have two zeros that are very close to each other, usually
-        # coming from a degenerate root (e.g. x^2 at x = 0 with numerical noise).
-        # `bnds` is sorted and `round` is monotonic, so duplicates (in rounded value) are
-        # adjacent; dedup in place to avoid the `Dict` allocated by `unique!(f, ::Vector)`.
-        _dedup_sorted_by_round!(bnds)
-        # compute the integral
         acc = zero(RET_TYPE)
-        for i in 1:(length(bnds)-1) # loop over each segment
-            rᵢ, rᵢ₊₁ = bnds[i], bnds[i+1]
-            L = rᵢ₊₁ - rᵢ
-            # decide if the segment is inside the domain
-            xc = insert(x̃, k, (rᵢ + rᵢ₊₁) / 2)
-            skip = false
-            for (ϕᵢ, sᵢ) in zip(phi_vec, s_vec)
-                sᵢ == 0 && continue # avoid evaluation of ϕᵢ(xc) when possible
-                if sᵢ * ϕᵢ(xc) < 0
-                    skip = true
-                    break
-                end
+        if N == 1
+            # 1D base case: a level-set may have several zeros, found by recursive bisection in
+            # `_find_zeros!`, so the boundary count is unbounded → a heap buffer is used. This
+            # closure is evaluated once and not stored (the base case returns `f̃(x̃)` directly),
+            # so the buffer does not force an escaping/heap closure.
+            bnds = [a, b]
+            for (ϕᵢ, ∇ϕᵢ) in zip(phi_vec, grad_phi_vec)
+                _find_zeros!(bnds, ϕᵢ, ∇ϕᵢ, U, config, tol, logger, tree)
             end
-            skip && continue
-            # add the contribution of the segment by performing a 1D quadrature.
-            val, _ = config.quad1d(rᵢ, rᵢ₊₁, tol) do t
-                x = insert(x̃, k, t)
-                return f(x)
+            sort!(bnds)
+            _dedup_sorted_by_round!(bnds)
+            for i in 1:(length(bnds) - 1)
+                acc += _segment_contribution(f, phi_vec, s_vec, x̃, k, bnds[i], bnds[i+1], config, tol, RET_TYPE)
             end
-            acc += val
+        else
+            # Height direction: `g` is monotonic, so each level-set has at most one root. Collect
+            # the roots (with an `Inf` sentinel for "no crossing") into a stack `SVector`, so the
+            # whole integrand stays isbits/stack-allocated (no captured heap buffer). The sentinels
+            # sort to the end and the segments touching them are skipped.
+            rts = map(phi_vec) do ϕᵢ
+                g = (t) -> ϕᵢ(insert(x̃, k, t))
+                return g(a) * g(b) > 0 ? T(Inf) : config.find_zero(g, a, b, tol)::T
+            end
+            bnds = sort(vcat(SVector(a, b), rts))
+            for i in 1:(length(bnds) - 1)
+                lo, hi = bnds[i], bnds[i+1]
+                (isinf(hi) || round(hi; sigdigits = 8) == round(lo; sigdigits = 8)) && continue
+                acc += _segment_contribution(f, phi_vec, s_vec, x̃, k, lo, hi, config, tol, RET_TYPE)
+            end
         end
         return acc
     end
     return f̃
+end
+
+# Contribution of one segment `[rᵢ, rᵢ₊₁]` of the height line through `x̃`: integrate `f` over it
+# with the 1D rule, but only if the segment midpoint is inside the domain (`sᵢ ϕᵢ ≥ 0` for all i).
+@inline function _segment_contribution(f, phi_vec, s_vec, x̃, k, rᵢ, rᵢ₊₁, config, tol, ::Type{RET_TYPE}) where {RET_TYPE}
+    xc = insert(x̃, k, (rᵢ + rᵢ₊₁) / 2)
+    for (ϕᵢ, sᵢ) in zip(phi_vec, s_vec)
+        sᵢ == 0 && continue # avoid evaluating ϕᵢ(xc) when possible
+        sᵢ * ϕᵢ(xc) < 0 && return zero(RET_TYPE)
+    end
+    val, _ = config.quad1d(rᵢ, rᵢ₊₁, tol) do t
+        return f(insert(x̃, k, t))
+    end
+    return val
 end
 
 function _surface_integrand_eval(
