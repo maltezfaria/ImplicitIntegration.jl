@@ -10,7 +10,14 @@ following fields:
   - `quad`: a function with signature `quad(f, a, b, tol) --> (I,E)` such that `I`
     approximates the integral of `f` over `[a,b]` and `E` is the estimated error. `a` and `b`
     `Tuple`(s)/`SVector`(s) specifying the lower and upper bounds of the integration domain,
-    and `tol` is the desired absolute tolerance.
+    and `tol` is the desired absolute tolerance. This is used to integrate over *full* cells.
+    Defaults to an adaptive `HCubature` rule. For an allocation-free, fixed-order
+    alternative when the integrand is smooth, see [`tensor_quad`](@ref).
+  - `quad1d`: a function with signature `quad1d(g, a, b, tol) --> (I,E)` used to integrate the
+    scalar function `g(t::Real)` over the segment `[a, b]` (scalars) at the base case of the
+    recursion. Within each segment the integrand is smooth, so a fixed-order rule is usually
+    both accurate and much cheaper than the default adaptive `quad`. Defaults to a
+    [`GaussLegendre`](@ref) rule of order 40.
   - `min_vol`: a function with signature `(tol) --> Float64` used to specify the volume of
     boxes below which the spatial subdivision stops.
     low-order method is used to approximate the integral.
@@ -18,11 +25,12 @@ following fields:
     height direction to be considered valid for recursion. The quality factor for a direction
     `k` is given by `|∂ₖϕ| / |∇ϕ|`.
 """
-@kwdef struct Config{T1,T2,T3}
+@kwdef struct Config{T1,T2,T3,T4}
     find_zero::T1 = (f, a, b, tol) -> Roots.find_zero(f, (a, b), Roots.Brent(); xatol = tol)
     quad::T2 = (f, a, b, tol) -> HCubature.hcubature(f, a, b; atol = tol)
     min_vol::T3 = (tol) -> sqrt(eps(Float64))
     min_qual::Float64 = 0.1
+    quad1d::T4 = (g, a, b, tol) -> (DEFAULT_QUAD1D(g, a, b), zero(typeof(a - b)))
 end
 
 """
@@ -141,7 +149,7 @@ true
 
 ```
 """
-function integrate(
+Base.@constprop :aggressive function integrate(
     f,
     ϕ,
     lc::SVector{N,T},
@@ -152,12 +160,37 @@ function integrate(
     loginfo = false,
 ) where {N,T}
     U = HyperRectangle(lc, hc)
-    logger = loginfo ? LogInfo(U) : nothing
-    tree = loginfo ? logger.tree : nothing
     RET_TYPE = typeof(f(lc) * one(T) + f(hc) * one(T)) # a guess for the return type...
     s = surface ? 0 : -1
-    val = _integrate(f, [ϕ], [s], U, config, RET_TYPE, Val(surface), tol, logger, tree)
+    # Route `loginfo` through a `Val` barrier so that the type of `logger` (and
+    # hence of the returned named tuple) is inferable; see issue #1.
+    return _integrate_top(f, ϕ, s, U, config, RET_TYPE, Val(surface), tol, Val(loginfo))
+end
+
+function _integrate_top(
+    f,
+    ϕ,
+    s,
+    U,
+    config,
+    ::Type{RET_TYPE},
+    ::Val{S},
+    tol,
+    ::Val{LOG},
+) where {RET_TYPE,S,LOG}
+    logger = LOG ? LogInfo(U) : nothing
+    tree = LOG ? logger.tree : nothing
+    # Seed the recursion with length-1 `SVector`s (not `Vector`s): the level-set list is carried
+    # as a fixed-length `SVector` whose length (= 2^(N-DIM)) is a function of `DIM` only, so the
+    # whole tower stays stack-allocated and the captured integrands need no heap. See `_integrate`.
+    val = _integrate(f, SVector((ϕ,)), SVector((s,)), U, config, RET_TYPE, Val(S), tol, logger, tree)
     return (; val, logger)
+end
+
+# Interleave two equal-length `SVector`s into one of double the length: [a1,b1,a2,b2,...]. `L` is
+# a type parameter so `2L` is known at compile time (keeps the result a statically-sized SVector).
+@inline function _interleave(a::SVector{L}, b::SVector{L}) where {L}
+    return SVector(ntuple(j -> iseven(j) ? b[j ÷ 2] : a[(j + 1) ÷ 2], Val(2L)))
 end
 
 function integrate(f, ϕ, lc, hc; kwargs...)
@@ -179,55 +212,33 @@ end
     tol,
     logger,
     tree,
-) where {DIM,T,RTYPE,S}
+)::RTYPE where {DIM,T,RTYPE,S}
     xl, xu = bounds(U)
-    # Start by pruning phi_vec...
-    partial_cell_idxs = Int[]
+    # Classify each level-set, bailing out on the first empty cell. Count the partials; full
+    # level-sets are carried (not dropped — see below), so we only need to know whether any
+    # partial remains.
+    npartial = 0
     for i in eachindex(phi_vec, s_vec)
         c = cell_type(phi_vec[i], s_vec[i], U, S)
         c == empty_cell && return zero(RTYPE)
-        c == partial_cell && push!(partial_cell_idxs, i)
+        c == partial_cell && (npartial += 1)
     end
-    if length(partial_cell_idxs) == 0 # full cell
+    if npartial == 0 # full cell (no empties, no partials)
         isnothing(logger) || (logger.fullcells += 1)
         val, _ = config.quad(f, xl, xu, tol)
         return val
     end
-    phi_vec = phi_vec[partial_cell_idxs]
-    s_vec = s_vec[partial_cell_idxs]
+    # No pruning of full level-sets: the list is a fixed-length `SVector` (length = 2^(N-DIM), a
+    # function of DIM only), so dropping entries would make the length data-dependent and break the
+    # static type. Carrying fulls is subdivision/value-invariant (a full restriction of a smooth ϕ
+    # keeps its gradient direction, so the height-direction choice is unchanged — verified).
     grad_phi_vec = map(gradient, phi_vec)
-    # Finished pruning. If we did not return before this point, then the domain is neither
-    # empty nor full. Next try to find a good direction to recurse on. We will choose the
-    # direction with the largest gradient.
     if DIM == 1 # base case
         f̃ = if S
             @assert length(phi_vec) == 1
-            _surface_integrand_eval(
-                f,
-                phi_vec[1],
-                grad_phi_vec[1],
-                U,
-                1,
-                config,
-                RTYPE,
-                tol,
-                logger,
-                tree,
-            )
+            _surface_integrand_eval(f, phi_vec[1], grad_phi_vec[1], U, 1, config, RTYPE, tol, logger, tree)
         else
-            _integrand_eval(
-                f,
-                phi_vec,
-                grad_phi_vec,
-                s_vec,
-                U,
-                1,
-                config,
-                RTYPE,
-                tol,
-                logger,
-                tree,
-            )
+            _integrand_eval(f, phi_vec, grad_phi_vec, s_vec, U, 1, config, RTYPE, tol, logger, tree)
         end
         x̃ = SVector{0,T}() # zero-argument vector to evaluate `f̃` (a const.)
         @debug "Reached 1D base case, evaluating integrand at $x̃"
@@ -236,141 +247,89 @@ end
     xc = (xl + xu) / 2
     ∇ϕ₁ = grad_phi_vec[1]
     k = argmax(abs.(∇ϕ₁(xc)))
-    # Now check if k is a "good" height direction for all the level-set functions
-    s_vec_new = Int[]
-    R = Any # type of restriction. TODO: infer the type?
-    phi_vec_new = R[]
-    for i in eachindex(phi_vec, s_vec)
-        ∇ϕᵢ_bnds = bound(grad_phi_vec[i], U)
-        den = sum(∇ϕᵢ_bnds) do (lb, ub)
-            return max(abs(lb), abs(ub))^2
-        end |> sqrt # max over U of |∇ϕᵢ|
-        lb, ub = ∇ϕᵢ_bnds[k]
-        qual = den == 0 ? 1.0 : lb * ub > 0 ? min(abs(lb), abs(ub)) / den : 0.0 # |∂ₖϕᵢ| / |∇ϕᵢ|
-        if qual > config.min_qual
-            # Restrict the level-set function to the box and push it to new list
-            ϕᵢᴸ, ϕᵢᵁ = project(phi_vec[i], k, xl[k]), project(phi_vec[i], k, xu[k])
-            sign_∂ₖ = lb < 0 ? -1 : 1 # sign of ∂ₖϕᵢ
-            sᵢᴸ, sᵢᵁ = sgn(sign_∂ₖ, s_vec[i], false, -1), sgn(sign_∂ₖ, s_vec[i], false, 1)
-            push!(phi_vec_new, ϕᵢᴸ, ϕᵢᵁ)
-            push!(s_vec_new, sᵢᴸ, sᵢᵁ)
+    # Gradient bounds and quality factor |∂ₖϕᵢ| / |∇ϕᵢ| for every level-set (over U).
+    gbnds = map(g -> bound(g, U), grad_phi_vec)
+    quals = map(gbnds) do b
+        den = sqrt(sum(t -> max(abs(t[1]), abs(t[2]))^2, b)) # max over U of |∇ϕᵢ|
+        lb, ub = b[k]
+        return den == 0 ? 1.0 : (lb * ub > 0 ? min(abs(lb), abs(ub)) / den : 0.0)
+    end
+    if all(q -> q > config.min_qual, quals)
+        # k is a good height direction for every level-set: restrict each to the lower/upper faces
+        # `xₖ = a, b` and recurse in one fewer dimension. The doubled list is built as a static
+        # `SVector` (interleaved [ϕ1ᴸ,ϕ1ᵁ,ϕ2ᴸ,ϕ2ᵁ,…] to match the previous push! order).
+        signs = map(b -> (b[k][1] < 0 ? -1 : 1), gbnds) # sign of ∂ₖϕᵢ
+        lowers = map(ϕ -> project(ϕ, k, xl[k]), phi_vec)
+        uppers = map(ϕ -> project(ϕ, k, xu[k]), phi_vec)
+        sL = map((m, s) -> sgn(m, s, false, -1), signs, s_vec)
+        sU = map((m, s) -> sgn(m, s, false, 1), signs, s_vec)
+        phi_vec_new = _interleave(lowers, uppers)
+        s_vec_new = _interleave(sL, sU)
+        @debug "Recursing down on $k for $U"
+        Ũ = remove_dimension(U, k)
+        subtree = isnothing(tree) ? nothing : TreeNode(Ũ)
+        isnothing(tree) || (push!(tree.children, (subtree, k)))
+        f̃ = if S
+            @assert length(phi_vec) == 1
+            _surface_integrand_eval(f, phi_vec[1], grad_phi_vec[1], U, k, config, RTYPE, tol, logger, tree)
         else
-            # Direction k not good for recursion on dimension, so immediately
-            # recurse on the box size
-            _, dir = findmax(xu - xl)
-            vol = S ? sum(xu - xl) : prod(xu - xl)
-            # split along largest direction
-            if vol < config.min_vol(tol) # stop splitting if the box is too small
-                isnothing(logger) || (logger.loworder += 1)
-                @warn "Terminal case of recursion reached on $U, resorting to low-order method."
-                if !S && all(i -> phi_vec[i](xc) * s_vec[i] > 0, 1:length(phi_vec))
-                    return f(xc) * prod(xu - xl)
-                else
-                    return zero(RTYPE)
-                end
-            else # split the box
-                @debug "Splitting $U along $dir"
-                Uₗ, Uᵣ = split(U, dir)
-                # compute the restriction of the level-sets on the left and right
-                phi_vec_left = empty(phi_vec)
-                phi_vec_right = empty(phi_vec)
-                for ϕ in phi_vec
-                    ϕₗ, ϕᵣ = split(ϕ, U, dir)
-                    push!(phi_vec_left, ϕₗ)
-                    push!(phi_vec_right, ϕᵣ)
-                end
-                tree_left = isnothing(tree) ? nothing : TreeNode(Uₗ)
-                tree_right = isnothing(tree) ? nothing : TreeNode(Uᵣ)
-                isnothing(tree) || (push!(tree.children, (tree_left, 0), (tree_right, 0)))
-                isnothing(logger) || (logger.subdivisions[DIM] += 1)
-                tol /= 2 # FIXME: halving the tolerance is way too much in practice...
-                Iₗ = _integrate(
-                    f,
-                    phi_vec_left,
-                    s_vec,
-                    Uₗ,
-                    config,
-                    RTYPE,
-                    Val(S),
-                    tol,
-                    logger,
-                    tree_left,
-                )
-                Iᵣ = _integrate(
-                    f,
-                    phi_vec_right,
-                    s_vec,
-                    Uᵣ,
-                    config,
-                    RTYPE,
-                    Val(S),
-                    tol,
-                    logger,
-                    tree_right,
-                )
-                return Iₗ + Iᵣ
+            _integrand_eval(f, phi_vec, grad_phi_vec, s_vec, U, k, config, RTYPE, tol, logger, tree)
+        end
+        return _integrate(f̃, phi_vec_new, s_vec_new, Ũ, config, RTYPE, Val(false), tol, logger, subtree)
+    else
+        # k is not a valid height direction for some level-set, so subdivide the box (or, once the
+        # box is too small, fall back to a low-order estimate).
+        _, dir = findmax(xu - xl)
+        vol = S ? sum(xu - xl) : prod(xu - xl)
+        if vol < config.min_vol(tol) # stop splitting if the box is too small
+            isnothing(logger) || (logger.loworder += 1)
+            @warn "Terminal case of recursion reached on $U, resorting to low-order method."
+            if !S && all(i -> phi_vec[i](xc) * s_vec[i] > 0, 1:length(phi_vec))
+                return f(xc) * prod(xu - xl)
+            else
+                return zero(RTYPE)
             end
+        else # split the box along its largest direction
+            @debug "Splitting $U along $dir"
+            Uₗ, Uᵣ = split(U, dir)
+            splits = map(ϕ -> split(ϕ, U, dir), phi_vec) # SVector of (ϕₗ, ϕᵣ)
+            phi_vec_left = map(first, splits)
+            phi_vec_right = map(last, splits)
+            tree_left = isnothing(tree) ? nothing : TreeNode(Uₗ)
+            tree_right = isnothing(tree) ? nothing : TreeNode(Uᵣ)
+            isnothing(tree) || (push!(tree.children, (tree_left, 0), (tree_right, 0)))
+            isnothing(logger) || (logger.subdivisions[DIM] += 1)
+            tol /= 2 # FIXME: halving the tolerance is way too much in practice...
+            Iₗ = _integrate(f, phi_vec_left, s_vec, Uₗ, config, RTYPE, Val(S), tol, logger, tree_left)
+            Iᵣ = _integrate(f, phi_vec_right, s_vec, Uᵣ, config, RTYPE, Val(S), tol, logger, tree_right)
+            return Iₗ + Iᵣ
         end
     end
-    # k is a good height direction for all the level-set functions, so recurse
-    # on dimension until 1D integrals are reached
-    @debug "Recursing down on $k for $U"
-    Ũ = remove_dimension(U, k)
-    subtree = isnothing(tree) ? nothing : TreeNode(Ũ)
-    isnothing(tree) || (push!(tree.children, (subtree, k)))
-    if S
-        @assert length(phi_vec) == 1
-        f̃ = _surface_integrand_eval(
-            f,
-            phi_vec[1],
-            grad_phi_vec[1],
-            U,
-            k,
-            config,
-            RTYPE,
-            tol,
-            logger,
-            tree,
-        )
-        return _integrate(
-            f̃,
-            phi_vec_new,
-            s_vec_new,
-            Ũ,
-            config,
-            RTYPE,
-            Val(false),
-            tol,
-            logger,
-            subtree,
-        )
-    else
-        f̃ = _integrand_eval(
-            f,
-            phi_vec,
-            grad_phi_vec,
-            s_vec,
-            U,
-            k,
-            config,
-            RTYPE,
-            tol,
-            logger,
-            tree,
-        )
-        return _integrate(
-            f̃,
-            phi_vec_new,
-            s_vec_new,
-            Ũ,
-            config,
-            RTYPE,
-            Val(false),
-            tol,
-            logger,
-            subtree,
-        )
+end
+
+"""
+    _dedup_sorted_by_round!(bnds; sigdigits = 8)
+
+In-place removal of consecutive elements of the already-sorted vector `bnds` that
+agree once rounded to `sigdigits` significant digits, keeping the first of each run.
+Equivalent to `unique!(x -> round(x; sigdigits), bnds)` for sorted input, but allocation
+free (the `unique!(f, v)` overload builds a `Dict`).
+"""
+function _dedup_sorted_by_round!(bnds; sigdigits = 8)
+    n = length(bnds)
+    n ≤ 1 && return bnds
+    w = 1
+    prev = round(bnds[1]; sigdigits)
+    @inbounds for i in 2:n
+        r = round(bnds[i]; sigdigits)
+        if r != prev
+            w += 1
+            bnds[w] = bnds[i]
+            prev = r
+        end
     end
+    resize!(bnds, w)
+    return bnds
 end
 
 ## Algorithm 1 of Saye 2015
@@ -383,67 +342,68 @@ defined as `I(x̃) = {t ∈ [a,b] : sᵢ*ϕᵢ(insert(̃x,k,t) ≥ 0 ∀ (ϕᵢ,
 """
 function _integrand_eval(
     f,
-    phi_vec,
+    phi_vec::SVector{NL},
     grad_phi_vec,
     s_vec,
-    U::HyperRectangle{N},
+    U::HyperRectangle{N,T},
     k::Int,
     config,
     ::Type{RET_TYPE},
     tol,
     logger,
     tree,
-) where {N,RET_TYPE}
+) where {NL,N,T,RET_TYPE}
     xl, xu = bounds(U)
     a, b = xl[k], xu[k]
     f̃ = (x̃) -> begin
-        # compute the connected components
-        bnds = [a, b]
-        for (ϕᵢ, ∇ϕᵢ) in zip(phi_vec, grad_phi_vec)
-            if N == 1
-                # possible several zeros. Use internal `find_zeros` method which
-                # works on the function `ϕᵢ` directly so that it can tap into
-                # the `bound(ϕᵢ)` and `bound(∇ϕᵢ)` methods.
-                _find_zeros!(bnds, ϕᵢ, ∇ϕᵢ, U, config, tol, logger, tree)
-            else
-                # we know that g is monotonic since it corresponds to a
-                # height-direction, so at most a single root exists.
-                g = (t) -> ϕᵢ(insert(x̃, k, t))
-                g(a) * g(b) > 0 && continue
-                push!(bnds, config.find_zero(g, a, b, tol))
-            end
-        end
-        sort!(bnds)
-        # HACK: keep only the unique elements in bnds up to ≈ 1e-8 relative tolerance.
-        # Avoids cases where we have two zeros that are very close to each other, usually
-        # coming from a degenerate root (e.g. x^2 at x = 0 with numerical noise).
-        unique!(x -> round(x; sigdigits = 8), bnds)
-        # compute the integral
         acc = zero(RET_TYPE)
-        for i in 1:(length(bnds)-1) # loop over each segment
-            rᵢ, rᵢ₊₁ = bnds[i], bnds[i+1]
-            L = rᵢ₊₁ - rᵢ
-            # decide if the segment is inside the domain
-            xc = insert(x̃, k, (rᵢ + rᵢ₊₁) / 2)
-            skip = false
-            for (ϕᵢ, sᵢ) in zip(phi_vec, s_vec)
-                sᵢ == 0 && continue # avoid evaluation of ϕᵢ(xc) when possible
-                if sᵢ * ϕᵢ(xc) < 0
-                    skip = true
-                    break
-                end
+        if N == 1
+            # 1D base case: a level-set may have several zeros, found by recursive bisection in
+            # `_find_zeros!`, so the boundary count is unbounded → a heap buffer is used. This
+            # closure is evaluated once and not stored (the base case returns `f̃(x̃)` directly),
+            # so the buffer does not force an escaping/heap closure.
+            bnds = [a, b]
+            for (ϕᵢ, ∇ϕᵢ) in zip(phi_vec, grad_phi_vec)
+                _find_zeros!(bnds, ϕᵢ, ∇ϕᵢ, U, config, tol, logger, tree)
             end
-            skip && continue
-            # add the contribution of the segment by performing a 1D quadrature.
-            val, _ = config.quad(SVector(rᵢ), SVector(rᵢ₊₁), tol) do (t,)
-                x = insert(x̃, k, t)
-                return f(x)
+            sort!(bnds)
+            _dedup_sorted_by_round!(bnds)
+            for i in 1:(length(bnds) - 1)
+                acc += _segment_contribution(f, phi_vec, s_vec, x̃, k, bnds[i], bnds[i+1], config, tol, RET_TYPE)
             end
-            acc += val
+        else
+            # Height direction: `g` is monotonic, so each level-set has at most one root. Collect
+            # the roots (with an `Inf` sentinel for "no crossing") into a stack `SVector`, so the
+            # whole integrand stays isbits/stack-allocated (no captured heap buffer). The sentinels
+            # sort to the end and the segments touching them are skipped.
+            rts = map(phi_vec) do ϕᵢ
+                g = (t) -> ϕᵢ(insert(x̃, k, t))
+                return g(a) * g(b) > 0 ? T(Inf) : config.find_zero(g, a, b, tol)::T
+            end
+            bnds = sort(vcat(SVector(a, b), rts))
+            for i in 1:(length(bnds) - 1)
+                lo, hi = bnds[i], bnds[i+1]
+                (isinf(hi) || round(hi; sigdigits = 8) == round(lo; sigdigits = 8)) && continue
+                acc += _segment_contribution(f, phi_vec, s_vec, x̃, k, lo, hi, config, tol, RET_TYPE)
+            end
         end
         return acc
     end
     return f̃
+end
+
+# Contribution of one segment `[rᵢ, rᵢ₊₁]` of the height line through `x̃`: integrate `f` over it
+# with the 1D rule, but only if the segment midpoint is inside the domain (`sᵢ ϕᵢ ≥ 0` for all i).
+@inline function _segment_contribution(f, phi_vec, s_vec, x̃, k, rᵢ, rᵢ₊₁, config, tol, ::Type{RET_TYPE}) where {RET_TYPE}
+    xc = insert(x̃, k, (rᵢ + rᵢ₊₁) / 2)
+    for (ϕᵢ, sᵢ) in zip(phi_vec, s_vec)
+        sᵢ == 0 && continue # avoid evaluating ϕᵢ(xc) when possible
+        sᵢ * ϕᵢ(xc) < 0 && return zero(RET_TYPE)
+    end
+    val, _ = config.quad1d(rᵢ, rᵢ₊₁, tol) do t
+        return f(insert(x̃, k, t))
+    end
+    return val
 end
 
 function _surface_integrand_eval(
@@ -467,16 +427,21 @@ function _surface_integrand_eval(
             # `integrate` with `surface=true` on one-dimensional level-set functions.
             roots = T[]
             _find_zeros!(roots, phi, phi_grad, U, config, tol, logger, tree)
+            # Use distinct names from the `else` branch below: this `do` block is a closure,
+            # so sharing `x`/`∇ϕ` with the outer scope would box them (and lose inference).
             sum(roots) do root
-                x = insert(x̃, k, root)
-                ∇ϕ = phi_grad(x)
-                return f(x) * norm(∇ϕ) * inv(abs(∇ϕ[k]))
+                xr = insert(x̃, k, root)
+                ∇ϕr = phi_grad(xr)
+                return f(xr) * norm(∇ϕr) * inv(abs(∇ϕr[k]))
             end
         else # guaranteed to have at most one zero
             if g(a) * g(b) > 0
                 return zero(RET_TYPE)
             else
-                root = config.find_zero(g, a, b, tol)
+                # `config.find_zero` is not type-stable through the `Config` field; the root
+                # is a coordinate of type `T`, so assert it to keep the integrand inferable
+                # (otherwise the whole surface integrand is `Any` and the quadrature boxes).
+                root = config.find_zero(g, a, b, tol)::T
                 x = insert(x̃, k, root)
                 ∇ϕ = phi_grad(x)
                 return f(x) * norm(∇ϕ) * inv(abs(∇ϕ[k]))

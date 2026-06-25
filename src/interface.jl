@@ -47,8 +47,15 @@ function bound(f, lc, hc)
     )
     N = length(lc)
     I = ntuple(i -> IntervalArithmetic.interval(lc[i], hc[i]), N) |> SVector
-    return IntervalArithmetic.bounds.(f(I))
+    # Avoid the broadcast `bounds.(f(I))`: even for `SVector` inputs its `Broadcasted` wrapper
+    # (and result) escape to the heap. Dispatch instead — a scalar `Interval` returns a plain
+    # `Tuple`, an `SVector` of intervals returns an `SVector` of tuples via `map` (which
+    # StaticArrays keeps stack-allocated). Numerically identical to the broadcast.
+    return _interval_bounds(f(I))
 end
+_interval_bounds(x::SVector) = map(IntervalArithmetic.bounds, x)
+# scalar fallback: an `Interval`, or a plain `Real` for a constant level-set/gradient component
+_interval_bounds(x) = IntervalArithmetic.bounds(x)
 bound(f, rec::HyperRectangle) = bound(f, bounds(rec)...)
 
 """
@@ -78,7 +85,11 @@ function project(f, k, v)
     ALLOW_DEFAULT_INTERFACE[] || error(
         "Default interface is disabled, please implement the `project` method for your function type.",
     )
-    return (x) -> f(insert(x, k, v))
+    # Convert `v` to `eltype(x)` so that `insert` produces a homogeneous `SVector`. Otherwise
+    # mixing the captured `Float64` `v` with an `Interval`/`Dual`-valued `x` builds a
+    # heterogeneous tuple that gets promoted and escapes to the heap (a large share of the
+    # allocations when bounding projected level-sets deep in the recursion).
+    return (x) -> f(insert(x, k, convert(eltype(x), v)))
 end
 
 """

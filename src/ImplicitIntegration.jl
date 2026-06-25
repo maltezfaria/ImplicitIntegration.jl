@@ -16,6 +16,6 @@ include("integration.jl")
 include("quadgen.jl")
 include("bernstein.jl")
 
-export integrate, quadgen
+export integrate, quadgen, tensor_quad
 
 end # module

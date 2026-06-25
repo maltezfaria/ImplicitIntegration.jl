@@ -116,9 +116,10 @@ end
     Q = quadgen(ϕ, a, b; order = 20, surface = true)[1]
     @test integrate(x -> 1.0, Q) ≈ 2 * π / 4
 
-    # FIXME: type-inference fails on 1.10, but passes o 1.12. Maybe related to recursive calls in `integrate`?
-    @test_broken @inferred integrate(x -> 1.0, ϕ, a, b)
-    @test_broken @inferred quadgen(ϕ, a, b; order)
+    # Type-inference (issue #1): `integrate`/`quadgen` are now type-stable.
+    @test (@inferred integrate(x -> 1.0, ϕ, a, b)) isa NamedTuple
+    @test (@inferred integrate(x -> 1.0, ϕ, a, b; surface = true)) isa NamedTuple
+    @test (@inferred quadgen(ϕ, a, b; order)) isa NamedTuple
 end
 
 @testset "Volume integrals" begin
@@ -163,9 +164,10 @@ end
     Q = quadgen(ϕ, a, b .+ 0.1; order = 20, surface = true)[1]
     @test integrate(x -> 1.0, Q) ≈ 4 * π / 8
 
-    # FIXME: type-inference fails. Maybe related to recursive calls in `integrate`?
-    @test_broken @inferred integrate(x -> 1.0, ϕ, a, b .+ 0.1)
-    @test_broken @inferred quadgen(ϕ, a, b .+ 0.1; order)
+    # Type-inference (issue #1): `integrate`/`quadgen` are now type-stable.
+    @test (@inferred integrate(x -> 1.0, ϕ, a, b .+ 0.1)) isa NamedTuple
+    @test (@inferred integrate(x -> 1.0, ϕ, a, b .+ 0.1; surface = true)) isa NamedTuple
+    @test (@inferred quadgen(ϕ, a, b .+ 0.1; order)) isa NamedTuple
 end
 
 @testset "Logging" begin
@@ -215,4 +217,68 @@ end
     @test_throws ErrorException ImplicitIntegration.project(x -> x[1], 1, 0.5)
     @test_throws ErrorException ImplicitIntegration.split(x -> x[1], (0.0,), (1.0,), 1)
     ImplicitIntegration.enable_default_interface()
+end
+
+@testset "_dedup_sorted_by_round! (alloc-free, matches unique!)" begin
+    for v0 in (
+        [0.0, 1.0],
+        [0.1, 0.1 + 1e-12, 0.5, 0.5, 0.9],
+        [0.30000001, 0.30000002, 0.7],
+        Float64[],
+        [3.0],
+    )
+        v = sort(v0)
+        ref = unique(x -> round(x; sigdigits = 8), v)
+        @test ImplicitIntegration._dedup_sorted_by_round!(copy(v)) == ref
+    end
+    # allocation-free on a warmed call (no Dict, unlike `unique!(f, v)`)
+    buf = sort(rand(50))
+    ImplicitIntegration._dedup_sorted_by_round!(copy(buf))
+    @test (@allocated ImplicitIntegration._dedup_sorted_by_round!(buf)) == 0
+end
+
+@testset "quad1d base-case rule (Gauss default vs HCubature)" begin
+    using StaticArrays: SVector
+    # The default `quad1d` is a fixed Gauss-Legendre rule; it must agree with an explicit
+    # adaptive HCubature `quad1d` to within tolerance on volume and surface integrals.
+    import HCubature
+    hcub1d = (g, a, b, tol) -> HCubature.hcubature(x -> g(x[1]), SVector(a), SVector(b); atol = tol)
+    cfg_hcub = ImplicitIntegration.Config(; quad1d = hcub1d)
+    for (ϕ, lc, hc) in (
+        (x -> x[1]^2 + x[2]^2 - 1, (0.0, 0.0), (1.5, 1.5)),
+        (x -> x[1]^2 + x[2]^2 + x[3]^2 - 1, (0.0, 0.0, 0.0), (1.5, 1.5, 1.5)),
+    )
+        for surface in (false, true)
+            ref = integrate(x -> 1.0, ϕ, lc, hc; surface, config = cfg_hcub).val
+            gauss = integrate(x -> 1.0, ϕ, lc, hc; surface).val
+            @test gauss ≈ ref rtol = 1e-6
+        end
+    end
+    # the default rule is built once (a module constant), not per call
+    @test ImplicitIntegration.DEFAULT_QUAD1D === ImplicitIntegration.DEFAULT_QUAD1D
+end
+
+@testset "tensor_quad opt-in full-cell rule (matches HCubature, alloc-light)" begin
+    using StaticArrays: SVector
+    # `tensor_quad` is an opt-in, allocation-free, fixed-order tensor Gauss rule for the
+    # `quad` (full-cell) field of `Config`. It must agree with the default adaptive
+    # HCubature full-cell rule on volume and surface integrals.
+    cfg = ImplicitIntegration.Config(; quad = tensor_quad(; order = 20))
+    for (ϕ, lc, hc) in (
+        (x -> x[1]^2 + x[2]^2 - 1, (0.0, 0.0), (1.5, 1.5)),
+        (x -> x[1]^2 + x[2]^2 + x[3]^2 - 1, (0.0, 0.0, 0.0), (1.5, 1.5, 1.5)),
+    )
+        for surface in (false, true)
+            ref = integrate(x -> 1.0, ϕ, lc, hc; surface).val
+            tq = integrate(x -> 1.0, ϕ, lc, hc; surface, config = cfg).val
+            @test tq ≈ ref rtol = 1e-8
+        end
+    end
+    # exact for polynomials and allocation-light per call (no closure boxing)
+    q = tensor_quad(; order = 20)
+    f = x -> 1.0 + x[1]^2
+    a, b = SVector(0.0, 0.0, 0.0), SVector(1.0, 1.0, 1.0)
+    @test q(f, a, b, 1e-8)[1] ≈ 1 + 1 / 3
+    q(f, a, b, 1e-8)
+    @test (@allocated q(f, a, b, 1e-8)) < 512
 end
