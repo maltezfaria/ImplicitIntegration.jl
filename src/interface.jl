@@ -47,8 +47,15 @@ function bound(f, lc, hc)
     )
     N = length(lc)
     I = ntuple(i -> IntervalArithmetic.interval(lc[i], hc[i]), N) |> SVector
-    return IntervalArithmetic.bounds.(f(I))
+    # Avoid the broadcast `bounds.(f(I))`: even for `SVector` inputs its `Broadcasted` wrapper
+    # (and result) escape to the heap. Dispatch instead — a scalar `Interval` returns a plain
+    # `Tuple`, an `SVector` of intervals returns an `SVector` of tuples via `map` (which
+    # StaticArrays keeps stack-allocated). Numerically identical to the broadcast.
+    return _interval_bounds(f(I))
 end
+_interval_bounds(x::SVector) = map(IntervalArithmetic.bounds, x)
+# scalar fallback: an `Interval`, or a plain `Real` for a constant level-set/gradient component
+_interval_bounds(x) = IntervalArithmetic.bounds(x)
 bound(f, rec::HyperRectangle) = bound(f, bounds(rec)...)
 
 """
