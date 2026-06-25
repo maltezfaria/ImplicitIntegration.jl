@@ -43,6 +43,57 @@ end
 const DEFAULT_QUAD1D = GaussLegendre(; order = 40)
 
 """
+    tensor_quad(; order, T = Float64)
+
+Build an allocation-free, fixed-order tensor-product `GaussLegendre` quadrature suitable for
+the `quad` field of [`Config`](@ref); i.e. the rule used to integrate over *full* cells:
+
+```julia
+config = Config(; quad = tensor_quad(; order = 20))
+integrate(f, ϕ, lc, hc; config)
+```
+
+This is an **opt-in** alternative to the default adaptive `HCubature` full-cell rule. The
+returned rule allocates nothing (the nodes/weights are computed once, here, and reused), and
+is exact for polynomials of degree `≤ order` in each coordinate — making it a good fit when
+the integrand is smooth (e.g. polynomial moments) and many full cells are encountered.
+
+!!! warning
+
+    Unlike the default `HCubature` rule, this rule is **non-adaptive**: it ignores the `tol`
+    argument and always uses the same fixed order. For integrands with sharp/oscillatory
+    features inside a full cell it may be less accurate than the adaptive default. It is not
+    used by default for this reason.
+"""
+function tensor_quad(; order, T::Type = Float64)
+    gl = GaussLegendre(; order, T)
+    return (f, a, b, tol) -> (_gl_tensor(gl, f, a, b), Inf)
+end
+
+# Allocation-free N-dimensional tensor-product evaluation of a `GaussLegendre` rule. We loop a
+# single linear index over the `Mᴺ` tensor nodes and decode it into per-dimension node indices,
+# rather than nesting `N` closures (which box heavily — see the note on `TensorQuadrature`).
+function _gl_tensor(gl::GaussLegendre{M,T}, f, a::SVector{N,S}, b::SVector{N,S}) where {M,T,N,S}
+    nodes, weights = gl.nodes, gl.weights
+    h = b .- a
+    # Build the first node explicitly to seed the accumulator with the right element type.
+    x0 = ntuple(d -> @inbounds(a[d] + h[d] * nodes[1]), Val(N)) |> SVector
+    acc = f(x0) * (weights[1]^N)
+    for lin in 1:(M^N - 1) # remaining tensor nodes
+        # Decode `lin` into per-dimension node indices (base-`M` digits). Keep the coordinate
+        # build (`ntuple`) free of captured mutable state, and accumulate the weight in a plain
+        # loop, so neither closes over a reassigned variable (which would box).
+        x = ntuple(d -> (@inbounds j = (lin ÷ M^(d - 1)) % M + 1; @inbounds a[d] + h[d] * nodes[j]), Val(N)) |> SVector
+        wgt = one(T)
+        for d in 1:N
+            @inbounds wgt *= weights[(lin ÷ M^(d - 1)) % M + 1]
+        end
+        acc += f(x) * wgt
+    end
+    return acc * prod(h)
+end
+
+"""
     TensorQuadrature(quad1d)
 
 Given a 1D quadrature rule `quad1d` with signature `quad1d(f, a::Number, b::Number)`, return a tensor product quadrature rule callable through

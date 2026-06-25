@@ -257,3 +257,28 @@ end
     # the default rule is built once (a module constant), not per call
     @test ImplicitIntegration.DEFAULT_QUAD1D === ImplicitIntegration.DEFAULT_QUAD1D
 end
+
+@testset "tensor_quad opt-in full-cell rule (matches HCubature, alloc-light)" begin
+    using StaticArrays: SVector
+    # `tensor_quad` is an opt-in, allocation-free, fixed-order tensor Gauss rule for the
+    # `quad` (full-cell) field of `Config`. It must agree with the default adaptive
+    # HCubature full-cell rule on volume and surface integrals.
+    cfg = ImplicitIntegration.Config(; quad = tensor_quad(; order = 20))
+    for (ϕ, lc, hc) in (
+        (x -> x[1]^2 + x[2]^2 - 1, (0.0, 0.0), (1.5, 1.5)),
+        (x -> x[1]^2 + x[2]^2 + x[3]^2 - 1, (0.0, 0.0, 0.0), (1.5, 1.5, 1.5)),
+    )
+        for surface in (false, true)
+            ref = integrate(x -> 1.0, ϕ, lc, hc; surface).val
+            tq = integrate(x -> 1.0, ϕ, lc, hc; surface, config = cfg).val
+            @test tq ≈ ref rtol = 1e-8
+        end
+    end
+    # exact for polynomials and allocation-light per call (no closure boxing)
+    q = tensor_quad(; order = 20)
+    f = x -> 1.0 + x[1]^2
+    a, b = SVector(0.0, 0.0, 0.0), SVector(1.0, 1.0, 1.0)
+    @test q(f, a, b, 1e-8)[1] ≈ 1 + 1 / 3
+    q(f, a, b, 1e-8)
+    @test (@allocated q(f, a, b, 1e-8)) < 512
+end

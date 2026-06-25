@@ -11,6 +11,8 @@ following fields:
     approximates the integral of `f` over `[a,b]` and `E` is the estimated error. `a` and `b`
     `Tuple`(s)/`SVector`(s) specifying the lower and upper bounds of the integration domain,
     and `tol` is the desired absolute tolerance. This is used to integrate over *full* cells.
+    Defaults to an adaptive `HCubature` rule. For an allocation-free, fixed-order
+    alternative when the integrand is smooth, see [`tensor_quad`](@ref).
   - `quad1d`: a function with signature `quad1d(g, a, b, tol) --> (I,E)` used to integrate the
     scalar function `g(t::Real)` over the segment `[a, b]` (scalars) at the base case of the
     recursion. Within each segment the integrand is smooth, so a fixed-order rule is usually
