@@ -113,6 +113,22 @@ current_figure() # hide
 
 See the [`quadgen`](@ref) docstrings for more information on the available options.
 
+### `integrate_threaded`
+
+When integrating over a large bounding box, [`integrate_threaded`](@ref) splits it into a
+regular grid of subboxes and integrates them in parallel with `Threads.@spawn`, summing the
+results in a fixed order so that the value is deterministic and independent of the thread
+count:
+
+```@example overview-example
+ϕ = (x) -> x[1]^2 + x[2]^2 + x[3]^2 - 1
+res = integrate_threaded(x -> 1.0, ϕ, (-1.1, -1.1, -1.1), (1.1, 1.1, 1.1); partition = 4)
+res.val ≈ 4π / 3
+```
+
+`partition` controls the number of tasks (`prod(partition)`). See the
+[`integrate_threaded`](@ref) docstring for details and caveats.
+
 ## Going further
 
 The basic usage examples above, as well as the docstrings for the [`integrate`](@ref) and

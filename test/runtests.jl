@@ -8,6 +8,10 @@ end
     include("integration_test.jl")
 end
 
+@safetestset "Threaded integration tests" begin
+    include("threaded_test.jl")
+end
+
 @safetestset "Bernstein polynomial tests" begin
     include("bernstein_test.jl")
 end
