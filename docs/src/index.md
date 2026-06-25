@@ -74,6 +74,12 @@ println("Error of surface: $(int_surface.val - 4π)")
 println(int_surface.logger)
 ```
 
+!!! note "Type stability"
+    With the default keywords, `integrate` is type stable: the returned `val` is inferred as
+    the element type of the integrand (e.g. `Float64`), so `@inferred integrate(f, ϕ, lc, hc)`
+    succeeds. Passing `loginfo = true` is the documented exception, as the logger is only built
+    on request.
+
 It is also possible to visualize the computed tree structure by loading one of Makie's
 backends and calling the `plot` method on the `logger` object (mostly useful for debugging
 purposes):
