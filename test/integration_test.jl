@@ -216,3 +216,25 @@ end
     @test_throws ErrorException ImplicitIntegration.split(x -> x[1], (0.0,), (1.0,), 1)
     ImplicitIntegration.enable_default_interface()
 end
+
+@testset "Return-type inference (no corner evaluation)" begin
+    # The element type of the result must be determined WITHOUT evaluating the
+    # integrand at the bounding-box corners: the corners lie outside the implicit
+    # domain {ϕ<0}, where the integrand may be undefined. Regression for the old
+    # `typeof(f(lc)*one(T)+f(hc)*one(T))` guess, which threw here.
+    a, b = SVector(-1.1, -1.1), SVector(1.1, 1.1)
+    ϕ = (x) -> x[1]^2 + x[2]^2 - 1.0            # unit disk
+    f = (x) -> log(2 - x[1]^2 - x[2]^2)         # undefined at the corners (arg < 0)
+    @test_throws DomainError log(2 - 1.1^2 - 1.1^2)  # corner eval would have thrown
+    res = integrate(f, ϕ, a, b)                 # must NOT throw
+    @test res.val ≈ π * (2 * log(2) - 1)
+    @test (@inferred integrate(f, ϕ, a, b)) isa NamedTuple
+
+    # Integer-valued integrand still widens to float (matches the old `*one(T)`).
+    @test integrate(x -> 1, ϕ, a, b).val isa Float64
+
+    # Explicit `output_type` override: correct value and inferable at a real callsite.
+    @test integrate(x -> 1.0, ϕ, a, b; output_type = Float64).val ≈ π
+    g(f, ϕ, a, b) = integrate(f, ϕ, a, b; output_type = Float64)
+    @test (@inferred g(x -> 1.0, ϕ, a, b)) isa NamedTuple
+end
