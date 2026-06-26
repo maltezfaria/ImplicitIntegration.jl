@@ -116,9 +116,9 @@ end
     Q = quadgen(ϕ, a, b; order = 20, surface = true)[1]
     @test integrate(x -> 1.0, Q) ≈ 2 * π / 4
 
-    # FIXME: type-inference fails on 1.10, but passes o 1.12. Maybe related to recursive calls in `integrate`?
-    @test_broken @inferred integrate(x -> 1.0, ϕ, a, b)
-    @test_broken @inferred quadgen(ϕ, a, b; order)
+    # Type-inference (issue #1): `integrate`/`quadgen` are now type-stable.
+    @test (@inferred integrate(x -> 1.0, ϕ, a, b)) isa NamedTuple
+    @test (@inferred quadgen(ϕ, a, b; order)) isa NamedTuple
 end
 
 @testset "Volume integrals" begin
@@ -163,9 +163,9 @@ end
     Q = quadgen(ϕ, a, b .+ 0.1; order = 20, surface = true)[1]
     @test integrate(x -> 1.0, Q) ≈ 4 * π / 8
 
-    # FIXME: type-inference fails. Maybe related to recursive calls in `integrate`?
-    @test_broken @inferred integrate(x -> 1.0, ϕ, a, b .+ 0.1)
-    @test_broken @inferred quadgen(ϕ, a, b .+ 0.1; order)
+    # Type-inference (issue #1): `integrate`/`quadgen` are now type-stable.
+    @test (@inferred integrate(x -> 1.0, ϕ, a, b .+ 0.1)) isa NamedTuple
+    @test (@inferred quadgen(ϕ, a, b .+ 0.1; order)) isa NamedTuple
 end
 
 @testset "Logging" begin
@@ -215,4 +215,26 @@ end
     @test_throws ErrorException ImplicitIntegration.project(x -> x[1], 1, 0.5)
     @test_throws ErrorException ImplicitIntegration.split(x -> x[1], (0.0,), (1.0,), 1)
     ImplicitIntegration.enable_default_interface()
+end
+
+@testset "Return-type inference (no corner evaluation)" begin
+    # The element type of the result must be determined WITHOUT evaluating the
+    # integrand at the bounding-box corners: the corners lie outside the implicit
+    # domain {ϕ<0}, where the integrand may be undefined. Regression for the old
+    # `typeof(f(lc)*one(T)+f(hc)*one(T))` guess, which threw here.
+    a, b = SVector(-1.1, -1.1), SVector(1.1, 1.1)
+    ϕ = (x) -> x[1]^2 + x[2]^2 - 1.0            # unit disk
+    f = (x) -> log(2 - x[1]^2 - x[2]^2)         # undefined at the corners (arg < 0)
+    @test_throws DomainError log(2 - 1.1^2 - 1.1^2)  # corner eval would have thrown
+    res = integrate(f, ϕ, a, b)                 # must NOT throw
+    @test res.val ≈ π * (2 * log(2) - 1)
+    @test (@inferred integrate(f, ϕ, a, b)) isa NamedTuple
+
+    # Integer-valued integrand still widens to float (matches the old `*one(T)`).
+    @test integrate(x -> 1, ϕ, a, b).val isa Float64
+
+    # Explicit `output_type` override: correct value and inferable at a real callsite.
+    @test integrate(x -> 1.0, ϕ, a, b; output_type = Float64).val ≈ π
+    g(f, ϕ, a, b) = integrate(f, ϕ, a, b; output_type = Float64)
+    @test (@inferred g(x -> 1.0, ϕ, a, b)) isa NamedTuple
 end

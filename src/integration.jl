@@ -87,6 +87,11 @@ process if `loginfo = true`; otherwise, `logger` is `nothing`.
 For a finer control over the integration process, pass a `config` object (see
 [`Config`](@ref)).
 
+The element type of the result is inferred from `f` (without evaluating it at the
+bounding-box corners, which may lie outside the domain `{ϕ < 0}` where `f` can be
+undefined). If `f` is not type-inferable, pass `output_type` to specify the
+element type of the integral explicitly.
+
 Note that both `f` and `ϕ` must be callable with a single argument `𝐱` of type `SVector`.
 Furthemore, `ϕ` is expected to return a real value.
 
@@ -141,7 +146,45 @@ true
 
 ```
 """
-function integrate(
+# Determine the element type of the integral *without* evaluating `f` at the box
+# corners. The corners `lc`/`hc` generally lie outside the implicit domain
+# `{ϕ < 0}`, where `f` may be undefined (e.g. an integrable boundary singularity
+# such as `1/sqrt(1 - |x|²)` on the unit disk) — evaluating it there throws even
+# though the integral is perfectly well defined. Instead we ask inference what
+# type `f` produces on a domain point (`promote_op`, no call to `f`) and fold in
+# the coordinate/measure type `T` (matching the old `f(x) * one(T)` widening, so
+# an integer-valued integrand still promotes to float). Precedence:
+#   1. an explicit user-supplied `output_type`,
+#   2. the inferred (concrete) type,
+#   3. a *guarded* sample at the box centre — closer to the domain than the
+#      corners — raising an actionable error (pointing at `output_type`) instead
+#      of leaking an exception from a throwaway type probe.
+# An explicit `output_type` short-circuits inference. Dispatching on `::Type`
+# (rather than branching on a runtime value) keeps the return type a concrete
+# `Type{output_type}`, so the `::Type{RET_TYPE}` barrier downstream stays inferable.
+_result_type(f, output_type::Type, lc, hc) = output_type
+
+@inline function _result_type(f, ::Nothing, lc::SVector{N,T}, hc::SVector{N,T}) where {N,T}
+    R = Base.promote_op(f, SVector{N,T})       # type of `f(x)`, inferred, not evaluated
+    RT = Base.promote_op(*, R, T)              # type of `f(x) * measure`
+    isconcretetype(RT) && return RT
+    # Inference was inconclusive (e.g. a type-unstable integrand): fall back to a
+    # single guarded evaluation near the domain rather than at the box corners.
+    xc = (lc + hc) / 2
+    local v
+    try
+        v = f(xc)
+    catch err
+        throw(ArgumentError(
+            "Could not infer the integral's element type, and evaluating the " *
+            "integrand to determine it failed ($(typeof(err))). Pass " *
+            "`output_type=...` to `integrate` to set it explicitly.",
+        ))
+    end
+    return typeof(v * one(T))
+end
+
+Base.@constprop :aggressive function integrate(
     f,
     ϕ,
     lc::SVector{N,T},
@@ -150,13 +193,30 @@ function integrate(
     tol = 1e-8,
     config = Config(),
     loginfo = false,
+    output_type = nothing,
 ) where {N,T}
     U = HyperRectangle(lc, hc)
-    logger = loginfo ? LogInfo(U) : nothing
-    tree = loginfo ? logger.tree : nothing
-    RET_TYPE = typeof(f(lc) * one(T) + f(hc) * one(T)) # a guess for the return type...
+    RET_TYPE = _result_type(f, output_type, lc, hc)
     s = surface ? 0 : -1
-    val = _integrate(f, [ϕ], [s], U, config, RET_TYPE, Val(surface), tol, logger, tree)
+    # Route `loginfo` through a `Val` barrier so that the type of `logger` (and
+    # hence of the returned named tuple) is inferable; see issue #1.
+    return _integrate_top(f, ϕ, s, U, config, RET_TYPE, Val(surface), tol, Val(loginfo))
+end
+
+function _integrate_top(
+    f,
+    ϕ,
+    s,
+    U,
+    config,
+    ::Type{RET_TYPE},
+    ::Val{S},
+    tol,
+    ::Val{LOG},
+) where {RET_TYPE,S,LOG}
+    logger = LOG ? LogInfo(U) : nothing
+    tree = LOG ? logger.tree : nothing
+    val = _integrate(f, [ϕ], [s], U, config, RET_TYPE, Val(S), tol, logger, tree)
     return (; val, logger)
 end
 
@@ -179,7 +239,7 @@ end
     tol,
     logger,
     tree,
-) where {DIM,T,RTYPE,S}
+)::RTYPE where {DIM,T,RTYPE,S}
     xl, xu = bounds(U)
     # Start by pruning phi_vec...
     partial_cell_idxs = Int[]
